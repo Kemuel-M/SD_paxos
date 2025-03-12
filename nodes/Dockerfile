@@ -3,7 +3,7 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Copiar requirements.txt
-COPY requirements.txt .
+COPY nodes/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # O código-fonte é montado como volume para facilitar o desenvolvimento
