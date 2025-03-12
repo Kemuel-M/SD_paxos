@@ -24,6 +24,7 @@ if ! docker info | grep -q "Swarm: active"; then
 fi
 
 # Primeiro, parar qualquer serviço existente
+echo -e "${YELLOW}Removendo serviços existentes...${NC}"
 docker stack rm paxos 2>/dev/null
 echo -e "${YELLOW}Aguardando limpeza de serviços antigos...${NC}"
 sleep 15
@@ -33,9 +34,19 @@ docker network prune -f
 
 # Construir imagem única
 echo -e "${YELLOW}Construindo imagem Docker...${NC}"
-# Alterado para usar o Dockerfile no diretório nodes
-docker build -t paxos-node -f nodes/Dockerfile . || exit 1
+# Garantir que estamos no diretório correto e construir a imagem
+cd nodes || {
+    echo -e "${RED}O diretório nodes/ não foi encontrado!${NC}"
+    exit 1
+}
 
+docker build -t paxos-node . || {
+    echo -e "${RED}Falha ao construir a imagem Docker.${NC}"
+    cd ..
+    exit 1
+}
+
+cd ..
 echo -e "${GREEN}Imagem Docker construída com sucesso!${NC}"
 
 # Iniciar o stack

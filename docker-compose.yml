@@ -3,9 +3,6 @@ version: '3.8'
 services:
   # Proposers
   proposer1:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: proposer1
     environment:
@@ -19,17 +16,12 @@ services:
       - "8001:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
         condition: on-failure
 
   proposer2:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: proposer2
     environment:
@@ -43,8 +35,6 @@ services:
       - "8002:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -53,9 +43,6 @@ services:
       - proposer1
 
   proposer3:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: proposer3
     environment:
@@ -69,8 +56,6 @@ services:
       - "8003:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -81,9 +66,6 @@ services:
 
   # Acceptors
   acceptor1:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: acceptor1
     environment:
@@ -97,8 +79,6 @@ services:
       - "8004:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -107,9 +87,6 @@ services:
       - proposer1
 
   acceptor2:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: acceptor2
     environment:
@@ -123,8 +100,6 @@ services:
       - "8005:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -134,9 +109,6 @@ services:
       - acceptor1
 
   acceptor3:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: acceptor3
     environment:
@@ -150,8 +122,6 @@ services:
       - "8006:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -163,9 +133,6 @@ services:
 
   # Learners
   learner1:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: learner1
     environment:
@@ -179,8 +146,6 @@ services:
       - "8007:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -190,9 +155,6 @@ services:
       - acceptor1
 
   learner2:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: learner2
     environment:
@@ -206,8 +168,6 @@ services:
       - "8008:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -219,9 +179,6 @@ services:
 
   # Clients
   client1:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: client1
     environment:
@@ -235,8 +192,6 @@ services:
       - "8009:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
@@ -247,9 +202,6 @@ services:
       - learner1
 
   client2:
-    build:
-      context: ./
-      dockerfile: Dockerfile
     image: paxos-node
     hostname: client2
     environment:
@@ -263,8 +215,6 @@ services:
       - "8010:8000"
     networks:
       - paxos-network
-    volumes:
-      - ./:/app
     deploy:
       replicas: 1
       restart_policy:
