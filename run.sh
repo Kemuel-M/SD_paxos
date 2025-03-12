@@ -23,12 +23,6 @@ if ! docker info | grep -q "Swarm: active"; then
     }
 fi
 
-# Garantir permissões para o cliente CLI
-chmod +x ./client/client_cli.py
-
-# Certificar-se de que todos os arquivos Python são executáveis
-chmod +x *.py
-
 # Primeiro, parar qualquer serviço existente
 docker stack rm paxos 2>/dev/null
 echo -e "${YELLOW}Aguardando limpeza de serviços antigos...${NC}"
@@ -39,7 +33,8 @@ docker network prune -f
 
 # Construir imagem única
 echo -e "${YELLOW}Construindo imagem Docker...${NC}"
-docker build -t paxos-node . || exit 1
+# Alterado para usar o Dockerfile no diretório nodes
+docker build -t paxos-node -f nodes/Dockerfile . || exit 1
 
 echo -e "${GREEN}Imagem Docker construída com sucesso!${NC}"
 
@@ -97,10 +92,6 @@ echo -e "Learner2: http://localhost:8008/view-logs"
 echo -e "Client1: http://localhost:8009/view-logs"
 echo -e "Client2: http://localhost:8010/view-logs"
 
-echo -e "\n${YELLOW}Exemplos de comandos para interagir com clientes:${NC}"
-echo -e "Escrever valor: ./client/client_cli.py localhost 6001 write \"novo valor\""
-echo -e "Ler valores: ./client/client_cli.py localhost 6001 read"
-echo -e "Ver respostas: ./client/client_cli.py localhost 6001 responses"
-echo -e "Ver status: ./client/client_cli.py localhost 6001 status"
+echo -e "\n${YELLOW}Para interagir com o sistema, acesse as URLs acima${NC}"
 
 echo -e "\n${GREEN}Para parar o sistema: docker stack rm paxos${NC}"
