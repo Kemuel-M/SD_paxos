@@ -1,0 +1,16 @@
+paxos-system/
+├── nodes/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── base_node.py
+│   ├── gossip_protocol.py
+│   ├── proposer_node.py
+│   ├── acceptor_node.py
+│   ├── learner_node.py
+│   ├── client_node.py
+│   └── main.py
+├── docker-compose.yml
+├── README.md
+├── run.sh
+├── monitor.sh
+└── diretorios projeto.txt
