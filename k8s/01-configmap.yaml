@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paxos-config
+  namespace: paxos
+data:
+  # O valor será substituído durante a criação do pod
+  SEED_NODES: "1:proposer:proposer1:3001"

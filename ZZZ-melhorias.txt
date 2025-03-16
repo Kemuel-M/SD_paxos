@@ -1,0 +1,132 @@
+estou usando  ambiente virtual Python
+
+
+proposer_node.py
+A verificação de líder acontece a cada 2 segundos, o que pode levar a muitas eleições simultâneas
+Não há backoff aleatório para evitar tempestade de eleições simultâneas
+Eleição de Líder:
+Adicionar backoff exponencial com jitter para evitar tempestade de eleições
+Implementar detecção mais robusta de falha de líder (ex: quórum de nós relatando falha)
+
+No método _send_client_prepare do proposer_node.py:
+O timeout de 5 segundos é fixo para todos os requests
+Não há retry para falhas temporárias de rede
+Uma rede instável pode causar desistência prematura de propostas válidas
+Resiliência de Rede:
+Implementar retry com backoff para operações de rede
+Considerar timeouts adaptativos baseados em condições da rede
+
+Na implementação do Gossip Protocol, há potenciais race conditions:
+O lock protege apenas a preparação dos dados, mas não a operação inteira
+Operações de rede são feitas fora do lock, o que é bom para performance
+Contudo, o estado pode mudar entre preparo e envio, criando inconsistências
+
+Configuração:
+Tornar parâmetros como timeouts, intervalos de retry e tamanho de quórum configuráveis via ConfigMap
+
+Monitoramento:
+Adicionar métricas Prometheus para monitorar saúde e performance do sistema
+Implementar dashboards Grafana específicos para o algoritmo Paxos
+
+
+atualizar o README.md com as atualizacoes feitas. para mostrar como usar cada coisa e a ordem de se usar.
+
+
+
+
+e se fazer a comunicao deles todos via ssh?
+
+
+
+altere os arquivos necessarios para realizar o seguinte.
+quero que essas mundancas sejam permanentes, ou seja tem que ser
+nos arquivos do projeto.
+modifique permanentemente os arquivos fonte originais no diretório nodes/ 
+
+Etapas do Protocolo
+1. Bootstrap Inicial e Eleição Sem Liderança Prévia
+* Registro Inicial:
+   * Quando um novo nó entra na rede, ele é registrado como cliente por padrão.
+   * O gerenciador de rede (ou um mecanismo distribuído de descoberta) mantém a lista de nós ativos.
+* Candidatura Inicial:
+   * Um conjunto predefinido de nós (ou um grupo de proposers) é designado para participar do processo de eleição inicial.
+   * Esses nós geram um número de proposta usando um contador local e seu identificador único. Exemplo: Nuˊmero de Proposta=contador×100+ID\text{Número de Proposta} = \text{contador} \times 100 + \text{ID}Nuˊmero de Proposta=contador×100+ID
+* Envio do Prepare:
+   * Os nós candidatos enviam mensagens prepare para os acceptors com seus números de proposta.
+   * Os acceptors respondem com promise se o número for maior que o que já estiver registrado.
+* Determinação do Líder:
+   * O nó que conseguir um quórum (maioria dos acceptors) se torna o líder e inicia a função de coordenação.
+   * Este mecanismo de bootstrap permite a eleição inicial sem a necessidade de um líder preexistente.
+2. Mecanismo de Heartbeat e Timeouts
+* Heartbeat do Líder:
+   * O líder eleito envia periodicamente mensagens de heartbeat para que os demais nós (proposers e acceptors) saibam que a liderança está ativa.
+* Timeout e Detecção de Falha:
+   * Se um nó não receber o heartbeat do líder dentro de um intervalo de tempo pré-definido, ele assume que o líder falhou.
+   * Todos os nós elegíveis (proposers) iniciam um novo ciclo de eleição.
+3. Nova Eleição e Recuperação Automática
+* Reinício da Eleição:
+   * Na ausência de heartbeats (detectada via timeout), cada proposer incrementa seu contador, gera um novo número de proposta e envia uma mensagem prepare para os acceptors.
+   * O mecanismo de comparação (contador e ID) garante que, mesmo com candidaturas simultâneas, o nó com o número de proposta mais alto seja eleito.
+* Confirmação e Continuidade:
+   * Após receber um quórum de promises, o nó se declara líder e retoma o processo normal de coordenação de propostas.
+   * Os nós que não foram eleitos permanecem em modo “backup” e continuam monitorando os heartbeats.
+Considerações Adicionais
+* Verificação Mútua:
+   * Embora os proposers não se comuniquem diretamente para o consenso, eles participam do mecanismo de heartbeat e monitoramento, garantindo que todos saibam o status da liderança.
+* Critérios de Comparação:
+   * Os acceptors comparam os números de proposta com prioridade ao valor numérico. Em caso de empate (muito improvável se o contador e o ID forem bem escolhidos), podem usar um timestamp ou um valor aleatório como desempate.
+* Ajustes e Configuração:
+   * O tempo de timeout deve ser ajustado conforme o ambiente e a latência da rede.
+   * O mecanismo de bootstrap inicial deve estar bem definido para que os nós que entram na rede possam ser promovidos a proposers conforme necessário pelo gerenciador de rede.
+assim ira resolver o problema abaixo
+
+Resolving Your Paxos Leadership Deadlock
+how the leader election protocol works:
+The error "Not the leader" indicates that proposers are rejecting proposals because they're not considered the leader
+But since no leader exists, we're in a deadlock situation where:
+No node can propose because they're not the leader
+No node can become leader because they need to propose successfully first
+There's a fundamental paradox in your current implementation:
+A proposer can only propose values if it's the leader
+A proposer can only become the leader through a successful proposal
+No proposer can make a successful proposal without being the leader first
+This creates a catch-22 situation that the system can't resolve on its own.
+modifying your Paxos implementation to:
+Allow initial election without requiring current leadership
+Use a bootstrap mechanism to elect the first leader
+Include timeouts to detect failed leader elections
+Add automatic recovery when no leader exists
+
+Possível Deadlock: Pode haver um deadlock no código onde o líder fica preso em um ciclo de processamento
+Sobrecarga de Mensagens Gossip: O líder está recebendo muitas mensagens Gossip simultâneas e não consegue processar outras requisições
+endpoints de saúde não estavam funcionando corretamente
+Usar os nomes de serviço DNS para os pods
+Adicionar temporizadores para evitar deadlocks
+
+Deve um script de teste para:
+proposer:
+   tentar fazer comunicao com ele e ver os logs dele.
+   testar uma requisicao do cliente para ele e ver como ele responde.
+   testar como o proposer se comporta quando nao ha lider.
+   testar para ver uma eleicao acontecendo entre 3 proposers.
+   testar comunicacao do proposer com accepter.
+   testar se o proposer lider sabe que ele é o lider e nao procurar por um lider.
+acceptor:
+   testar se o acceptor recebe mensagens de um proposer.
+   testar se o accepter consegue se comunicar com o learner.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -39,7 +39,19 @@ class BaseNode:
         self.port = int(os.environ.get('PORT', self._get_default_port()))
         
         # Definir hostname (ou obter do ambiente)
-        self.hostname = os.environ.get('HOSTNAME', 'localhost')
+        raw_hostname = os.environ.get('HOSTNAME', 'localhost')
+        
+        # MODIFICAÇÃO: Converter o hostname do pod para o nome do serviço no Kubernetes
+        # No Kubernetes, os nomes de pods começam com o nome do serviço seguido por um hash
+        # Exemplo: "proposer1-d789dbb8b-8lj97" deve se tornar "proposer1"
+        if '-' in raw_hostname:
+            # Extrair apenas a parte do nome do serviço (antes do primeiro hífen)
+            service_name = raw_hostname.split('-')[0]
+            # Para uso dentro do cluster Kubernetes, use o formato DNS completo
+            self.hostname = f"{service_name}.{os.environ.get('NAMESPACE', 'paxos')}.svc.cluster.local"
+            self.logger.info(f"Usando nome de serviço Kubernetes: {self.hostname}")
+        else:
+            self.hostname = raw_hostname
         
         # Obter nós sementes (a partir de variáveis de ambiente)
         self.seed_nodes = self._get_seed_nodes()
@@ -97,6 +109,7 @@ class BaseNode:
         @self.app.route('/health', methods=['GET'])
         def health():
             """Verificar saúde do nó"""
+            # Versão simplificada do health check
             return jsonify({
                 "status": "healthy",
                 "role": self.node_role,
@@ -120,10 +133,10 @@ class BaseNode:
             "current_leader": self.gossip.get_leader()
         }), 200
     
+    # No método start() do BaseNode
     def start(self):
         """
         Inicia o nó, incluindo o protocolo Gossip e o servidor Flask.
-        Pode ser sobrescrito por classes filhas para iniciar threads adicionais.
         """
         # Iniciar protocolo Gossip
         self.gossip.start(self.app)
@@ -136,8 +149,41 @@ class BaseNode:
         
         self.logger.info(f"Nó {self.node_role} inicializado com ID {self.node_id}")
         
-        # Iniciar servidor Flask
-        self.app.run(host='0.0.0.0', port=self.port)
+        # Verificar se gunicorn está disponível
+        try:
+            import gunicorn
+            has_gunicorn = True
+        except ImportError:
+            has_gunicorn = False
+        
+        # Se for o proposer1 (líder) e o gunicorn estiver disponível, usar múltiplos workers
+        if has_gunicorn and self.node_role == 'proposer' and self.node_id == 1:
+            from gunicorn.app.base import BaseApplication
+            
+            class FlaskApplication(BaseApplication):
+                def __init__(self, app, options=None):
+                    self.application = app
+                    self.options = options or {}
+                    super().__init__()
+                    
+                def load_config(self):
+                    for key, value in self.options.items():
+                        self.cfg.set(key.lower(), value)
+                        
+                def load(self):
+                    return self.application
+            
+            gunicorn_options = {
+                'bind': '0.0.0.0:' + str(self.port),
+                'workers': 4,
+                'threads': 2,
+                'timeout': 30
+            }
+            
+            FlaskApplication(self.app, gunicorn_options).run()
+        else:
+            # Iniciar servidor Flask normalmente
+            self.app.run(host='0.0.0.0', port=self.port, threaded=True)
     
     def _register_routes(self):
         """

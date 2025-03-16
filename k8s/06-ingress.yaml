@@ -1,0 +1,160 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paxos-ingress
+  namespace: paxos
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+  - http:
+      paths:
+      # Proposers
+      - path: /proposer1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: proposer1
+            port:
+              name: api
+      - path: /proposer2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: proposer2
+            port:
+              name: api
+      - path: /proposer3(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: proposer3
+            port:
+              name: api
+
+      # Acceptors
+      - path: /acceptor1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: acceptor1
+            port:
+              name: api
+      - path: /acceptor2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: acceptor2
+            port:
+              name: api
+      - path: /acceptor3(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: acceptor3
+            port:
+              name: api
+
+      # Learners
+      - path: /learner1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: learner1
+            port:
+              name: api
+      - path: /learner2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: learner2
+            port:
+              name: api
+
+      # Clients
+      - path: /client1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: client1
+            port:
+              name: api
+      - path: /client2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: client2
+            port:
+              name: api
+
+      # Monitor interfaces
+      - path: /monitor/proposer1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: proposer1
+            port:
+              name: monitor
+      - path: /monitor/proposer2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: proposer2
+            port:
+              name: monitor
+      - path: /monitor/proposer3(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: proposer3
+            port:
+              name: monitor
+      - path: /monitor/acceptor1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: acceptor1
+            port:
+              name: monitor
+      - path: /monitor/acceptor2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: acceptor2
+            port:
+              name: monitor
+      - path: /monitor/acceptor3(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: acceptor3
+            port:
+              name: monitor
+      - path: /monitor/learner1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: learner1
+            port:
+              name: monitor
+      - path: /monitor/learner2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: learner2
+            port:
+              name: monitor
+      - path: /monitor/client1(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: client1
+            port:
+              name: monitor
+      - path: /monitor/client2(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: client2
+            port:
+              name: monitor

@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: learner1
+  namespace: paxos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: learner1
+  template:
+    metadata:
+      labels:
+        app: learner1
+        role: learner
+    spec:
+      containers:
+      - name: learner
+        image: paxos-node:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_ID
+          value: "7"
+        - name: NODE_ROLE
+          value: "learner"
+        - name: PORT
+          value: "5001"
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          value: "paxos"
+        - name: SEED_NODES
+          value: "1:proposer:proposer1.paxos.svc.cluster.local:3001,4:acceptor:acceptor1.paxos.svc.cluster.local:4001"
+        ports:
+        - containerPort: 5001
+          name: api
+        - containerPort: 8000
+          name: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: learner1
+  namespace: paxos
+spec:
+  selector:
+    app: learner1
+  ports:
+  - name: api
+    port: 5001
+    targetPort: api
+  - name: monitor
+    port: 8000
+    targetPort: monitor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: learner2
+  namespace: paxos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: learner2
+  template:
+    metadata:
+      labels:
+        app: learner2
+        role: learner
+    spec:
+      containers:
+      - name: learner
+        image: paxos-node:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_ID
+          value: "8"
+        - name: NODE_ROLE
+          value: "learner"
+        - name: PORT
+          value: "5002"
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          value: "paxos"
+        - name: SEED_NODES
+          value: "1:proposer:proposer1.paxos.svc.cluster.local:3001,4:acceptor:acceptor1.paxos.svc.cluster.local:4001,7:learner:learner1.paxos.svc.cluster.local:5001"
+        ports:
+        - containerPort: 5002
+          name: api
+        - containerPort: 8000
+          name: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: learner2
+  namespace: paxos
+spec:
+  selector:
+    app: learner2
+  ports:
+  - name: api
+    port: 5002
+    targetPort: api
+  - name: monitor
+    port: 8000
+    targetPort: monitor

@@ -1,0 +1,10 @@
+### Baixar localmente o repositorio
+git clone https://github.com/Kemuel-M/SD_paxos_Kubernets
+git pull origin main
+
+
+
+### Salvar alteracoes no git 
+git add .
+git commit -m "Descrição das alterações realizadas"
+git push origin master

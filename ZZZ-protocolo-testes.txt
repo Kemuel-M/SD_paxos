@@ -1,0 +1,85 @@
+Verificar os serviços criados
+kubectl get services -n paxos
+
+Obter as URLs manualmente
+Depois que os serviços estiverem criados, você pode obter as URLs com:
+minikube service client1-external --url -n paxos
+minikube service proposer1-external --url -n paxos
+
+Verificar a definição dos pods
+kubectl describe pod -n paxos -l app=proposer1
+
+Verificar os logs dos pods
+# Verificar logs do proposer1
+kubectl logs -n paxos -l app=proposer1
+# Verificar logs do acceptor1
+kubectl logs -n paxos -l app=acceptor1
+# Verificar logs do learner1
+kubectl logs -n paxos -l app=learner1
+
+# Execute estes comandos para reiniciar o CoreDNS e garantir que o DNS esteja funcionando
+kubectl rollout restart deployment -n kube-system coredns
+
+# Verifique o status do CoreDNS
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# Ative o addon DNS do Minikube, se necessário
+minikube addons enable dns
+
+# Verificar o status de cada deployment individualmente
+kubectl rollout status deployment/proposer1 -n paxos
+kubectl rollout status deployment/proposer2 -n paxos
+kubectl rollout status deployment/proposer3 -n paxos
+kubectl rollout status deployment/acceptor1 -n paxos
+kubectl rollout status deployment/acceptor2 -n paxos
+kubectl rollout status deployment/acceptor3 -n paxos
+kubectl rollout status deployment/learner1 -n paxos
+kubectl rollout status deployment/learner2 -n paxos
+kubectl rollout status deployment/client1 -n paxos
+kubectl rollout status deployment/client2 -n paxos
+
+verificar todos os pods para ver se estão prontos:
+kubectl get pods -n paxos
+
+Verificar se o Flask está escutando corretamente:
+kubectl exec -n paxos $(kubectl get pods -n paxos -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") -- netstat -tuln | grep 3001
+
+Verificar o uso de recursos:
+kubectl top pods -n paxos
+
+Vamos verificar mais detalhes sobre o pod proposer1
+kubectl describe pod -n paxos $(kubectl get pods -n paxos -l app=proposer1 -o jsonpath="{.items[0].metadata.name}")
+
+Vamos olhar os logs crus do container sem usar comandos exec
+kubectl logs -n paxos $(kubectl get pods -n paxos -l app=proposer1 -o jsonpath="{.items[0].metadata.name}")
+
+# Verificar pods
+echo "Verificando pods:"
+kubectl get pods -n paxos
+
+# Verificar logs limitados do proposer1
+kubectl logs -n paxos $(kubectl get pods -n paxos -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") --tail=10
+
+# Verificar porta Flask diretamente
+kubectl exec -n paxos $(kubectl get pods -n paxos -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") -- ps -ef | grep python
+kubectl exec -n paxos $(kubectl get pods -n paxos -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") -- ls -la /app
+
+# Verificar se conseguimos fazer uma solicitação para a porta 3001 do proposer1
+kubectl exec -n paxos $(kubectl get pods -n paxos -l app=client1 -o jsonpath="{.items[0].metadata.name}") -- curl -s --connect-timeout 3 http://proposer1.paxos.svc.cluster.local:3001/health || echo "Falha na conexão HTTP"
+
+# Verificar DNS 
+kubectl exec -n paxos $(kubectl get pods -n paxos -l app=client1 -o jsonpath="{.items[0].metadata.name}") -- nslookup proposer1.paxos.svc.cluster.local
+
+
+
+
+
+
+
+
+
+
+
+
+
+

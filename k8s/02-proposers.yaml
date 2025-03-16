@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proposer1
+  namespace: paxos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proposer1
+  template:
+    metadata:
+      labels:
+        app: proposer1
+        role: proposer
+    spec:
+      containers:
+      - name: proposer
+        image: paxos-node:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_ID
+          value: "1"
+        - name: NODE_ROLE
+          value: "proposer"
+        - name: PORT
+          value: "3001"
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          value: "paxos"
+        - name: SEED_NODES
+          value: ""
+        ports:
+        - containerPort: 3001
+          name: api
+        - containerPort: 8000
+          name: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proposer1
+  namespace: paxos
+spec:
+  selector:
+    app: proposer1
+  ports:
+  - name: api
+    port: 3001
+    targetPort: api
+  - name: monitor
+    port: 8000
+    targetPort: monitor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proposer2
+  namespace: paxos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proposer2
+  template:
+    metadata:
+      labels:
+        app: proposer2
+        role: proposer
+    spec:
+      containers:
+      - name: proposer
+        image: paxos-node:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_ID
+          value: "2"
+        - name: NODE_ROLE
+          value: "proposer"
+        - name: PORT
+          value: "3002"
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          value: "paxos"
+        - name: SEED_NODES
+          value: "1:proposer:proposer1.paxos.svc.cluster.local:3001"
+        ports:
+        - containerPort: 3002
+          name: api
+        - containerPort: 8000
+          name: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proposer2
+  namespace: paxos
+spec:
+  selector:
+    app: proposer2
+  ports:
+  - name: api
+    port: 3002
+    targetPort: api
+  - name: monitor
+    port: 8000
+    targetPort: monitor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proposer3
+  namespace: paxos
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proposer3
+  template:
+    metadata:
+      labels:
+        app: proposer3
+        role: proposer
+    spec:
+      containers:
+      - name: proposer
+        image: paxos-node:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NODE_ID
+          value: "3"
+        - name: NODE_ROLE
+          value: "proposer"
+        - name: PORT
+          value: "3003"
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          value: "paxos"
+        - name: SEED_NODES
+          value: "1:proposer:proposer1.paxos.svc.cluster.local:3001,2:proposer:proposer2.paxos.svc.cluster.local:3002"
+        ports:
+        - containerPort: 3003
+          name: api
+        - containerPort: 8000
+          name: monitor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proposer3
+  namespace: paxos
+spec:
+  selector:
+    app: proposer3
+  ports:
+  - name: api
+    port: 3003
+    targetPort: api
+  - name: monitor
+    port: 8000
+    targetPort: monitor
