@@ -1,6 +1,6 @@
-# Sistema Distribuído de Consenso Paxos em Kubernetes
+# Sistema Distribuído de Consenso Paxos com Docker Compose
 
-Este projeto implementa um sistema distribuído baseado no algoritmo de consenso Paxos, executando em um ambiente Kubernetes. O sistema garante consistência e disponibilidade, mesmo em cenários de falhas parciais de nós.
+Este projeto implementa um sistema distribuído baseado no algoritmo de consenso Paxos, executando em ambiente Docker Compose. O sistema garante consistência e disponibilidade, mesmo em cenários de falhas parciais de nós.
 
 ## Índice
 
@@ -42,56 +42,52 @@ BaseNode (Classe Abstrata)
 
 Cada nó expõe uma API REST usando Flask para comunicação, e o estado distribuído é gerenciado pelo protocolo Gossip.
 
-### Arquitetura do Kubernetes
+### Arquitetura do Docker Compose
 
-O sistema é implantado em um cluster Kubernetes com:
+O sistema é implantado em um ambiente Docker Compose com:
 
 ```
-Namespace "paxos"
-  ├── Deployments
+Docker Network: paxos-network
+  ├── Serviços
   │   ├── proposer1, proposer2, proposer3
   │   ├── acceptor1, acceptor2, acceptor3
   │   ├── learner1, learner2
   │   └── client1, client2
-  ├── Services
-  │   ├── proposer-services
-  │   ├── acceptor-services
-  │   ├── learner-services
-  │   └── client-services
-  └── NodePort Services (para acesso externo)
+  └── Portas Expostas
+      ├── Proposers: 3001-3003 (API), 8001-8003 (Monitor)
+      ├── Acceptors: 4001-4003 (API), 8004-8006 (Monitor)
+      ├── Learners: 5001-5002 (API), 8007-8008 (Monitor)
+      └── Clients: 6001-6002 (API), 8009-8010 (Monitor)
 ```
 
 ### Estrutura de Diretórios
 
 ```
 paxos-system/
-├── nodes/                  # Código-fonte dos nós
+├── nodes/                              # Código-fonte dos nós
 │   ├── Dockerfile
-│   ├── base_node.py        # Classe base abstrata
-│   ├── gossip_protocol.py  # Implementação do protocolo Gossip
-│   ├── proposer_node.py    # Implementação do Proposer
-│   ├── acceptor_node.py    # Implementação do Acceptor
-│   ├── learner_node.py     # Implementação do Learner
-│   ├── client_node.py      # Implementação do Client
-│   ├── main.py             # Ponto de entrada principal
-│   └── requirements.txt    # Dependências Python
-├── k8s/                    # Manifestos Kubernetes
-│   ├── 00-namespace.yaml
-│   ├── 01-configmap.yaml
-│   ├── 02-proposers.yaml
-│   ├── 03-acceptors.yaml
-│   ├── 04-learners.yaml
-│   ├── 05-clients.yaml
-│   ├── 06-ingress.yaml
-│   └── 07-nodeport-services.yaml
-├── setup-dependencies.sh
-├── setup-kubernetes-wsl.sh # Configuração do ambiente no WSL
-├── deploy-paxos-k8s.sh     # Implantação do sistema no Kubernetes
-├── run.sh                  # Inicialização da rede Paxos
-├── paxos-client.sh         # Cliente interativo
-├── monitor.sh              # Monitor em tempo real
-├── cleanup-paxos-k8s.sh    # Limpeza do sistema
-└── README.md               # Este arquivo
+│   ├── base_node.py                    # Classe base abstrata
+│   ├── gossip_protocol.py              # Implementação do protocolo Gossip
+│   ├── proposer_node.py                # Implementação do Proposer
+│   ├── acceptor_node.py                # Implementação do Acceptor
+│   ├── learner_node.py                 # Implementação do Learner
+│   ├── client_node.py                  # Implementação do Client
+│   ├── main.py                         # Ponto de entrada principal
+│   └── requirements.txt                # Dependências Python
+├── test/
+│   ├── test-paxos.sh                   # Testes funcionais para a rede paxos completa
+│   ├── test-client.sh                  # Testes individuais para o Client
+│   ├── test-proposer.sh                # Testes individuais para o Proposer
+│   ├── test-acceptor.sh                # Testes individuais para o Acceptor
+│   ├── test-learner.sh                 # Testes individuais para o Learner
+├── docker-compose.yml                  # Configuração do Docker Compose
+├── setup-dependencies.sh               # Configuração do ambiente Linux
+├── dk-deploy.sh                        # Implantação do sistema
+├── dk-run.sh                           # Inicialização da rede Paxos
+├── dk-cleanup.sh                       # Limpeza do sistema
+├── client.sh                           # Cliente interativo
+├── monitor.sh                          # Monitor em tempo real
+└── README.md                           # Este arquivo
 ```
 
 ## Componentes do Sistema
@@ -182,100 +178,69 @@ O protocolo Gossip é usado para descoberta descentralizada de nós e propagaç�
 
 ## Requisitos de Sistema
 
-### Para ambiente de desenvolvimento (WSL/Ubuntu):
+### Para ambiente de desenvolvimento:
 
-- Windows 10/11 com WSL2 habilitado
-- Ubuntu 20.04 LTS ou superior no WSL
+- Linux, macOS, Windows com WSL, ou Docker Desktop
 - Docker Engine 19.03+
-- Kubernetes (via Minikube)
-- Python 3.8+
+- Docker Compose v2.0+
+- Python 3.8+ (para desenvolvimento local)
 - 4GB+ de RAM disponível
-- 10GB+ de espaço em disco
-
-### Para ambiente de produção:
-
-- Cluster Kubernetes v1.18+
-- Registro de contêineres (Docker Registry)
-- Sistema de armazenamento persistente
-- Balanceador de carga externo (opcional)
-- Monitoramento e logging (recomendado)
+- 2GB+ de espaço em disco
 
 ## Instalação e Configuração
 
-### 1. Preparação do Ambiente WSL
+### 1. Preparação do Ambiente
 
 ```bash
-# Torne o script executável
-chmod +x setup-kubernetes-wsl.sh
+# Clonar o repositório
+git clone https://github.com/Kemuel-M/SD_paxos_Kubernets
+cd SD_paxos_Kubernets
 
-# Execute o script de preparação
-./setup-kubernetes-wsl.sh
+# Tornar os scripts executáveis
+chmod +x *.sh
+chmod +x test/*.sh
 
-# Reinicie o WSL após a instalação
-# No PowerShell do Windows:
-wsl --shutdown
-# Reabra seu terminal WSL
+# Instalar dependências do sistema (opcional, somente para desenvolvimento local)
+./setup-dependencies.sh
+
+# Instalar o docker no sistema
+./setup-docker.sh
 ```
 
-O script `setup-kubernetes-wsl.sh` instala:
-- Docker
-- kubectl
-- Minikube
-- Dependências necessárias
-
-### 2. Inicialização do Cluster Minikube
+### 2. Implantação do Sistema com Docker Compose
 
 ```bash
-# Inicie o cluster Minikube
-minikube start --driver=docker
-
-# Verifique o status
-minikube status
+# Construir e iniciar os contêineres
+./dk-deploy.sh
 ```
 
-### 3. Implantação do Sistema no Kubernetes
+O script `dk-deploy.sh`:
+1. Verifica os pré-requisitos (Docker, Docker Compose)
+2. Constrói as imagens Docker dos nós
+3. Inicia os contêineres em segundo plano
+4. Verifica se todos os contêineres estão funcionando corretamente
+5. Exibe URLs de acesso
+
+### 3. Inicialização da Rede Paxos
 
 ```bash
-# Torne o script executável
-chmod +x deploy-paxos-k8s.sh
-
-# Execute o script de implantação
-./deploy-paxos-k8s.sh
+# Inicializar o sistema Paxos
+./dk-run.sh
 ```
 
-O script `deploy-paxos-k8s.sh`:
-1. Constrói a imagem Docker do nó Paxos
-2. Cria o namespace "paxos"
-3. Aplica todos os manifestos Kubernetes
-4. Configura serviços NodePort para acesso externo
-5. Aguarda a inicialização dos pods
-
-### 4. Inicialização da Rede Paxos
-
-```bash
-# Torne o script executável
-chmod +x run.sh
-
-# Execute o script de inicialização
-./run.sh
-```
-
-O script `run.sh`:
-1. Verifica se todos os pods estão prontos
-2. Inicia o processo de eleição de líder
-3. Verifica a saúde de todos os componentes
-4. Exibe URLs de acesso
+O script `dk-run.sh`:
+1. Verifica se todos os contêineres estão prontos
+2. Verifica o status de saúde de cada componente
+3. Inicia o processo de eleição de líder
+4. Exibe URLs de acesso ao sistema
 
 ## Guia de Uso
 
 ### 1. Interagindo com o Sistema via Cliente Interativo
 
 ```bash
-# Torne o script executável
-chmod +x paxos-client.sh
-
-# Execute o cliente interativo
-./paxos-client.sh
+# Executar o cliente interativo
+./client.sh
 ```
 
 O cliente interativo oferece as seguintes opções:
@@ -291,10 +256,7 @@ O cliente interativo oferece as seguintes opções:
 ### 2. Monitorando o Sistema em Tempo Real
 
 ```bash
-# Torne o script executável
-chmod +x monitor.sh
-
-# Execute o monitor em tempo real
+# Executar o monitor em tempo real
 ./monitor.sh
 ```
 
@@ -306,69 +268,67 @@ Opções do monitor:
 # Monitorar apenas acceptors e learners, sem seguir os logs
 ./monitor.sh --acceptors --learners --no-follow
 
-# Modo verboso com logs do Kubernetes
-./monitor.sh --verbose --kubectl-logs
+# Modo verboso com logs do Docker
+./monitor.sh --verbose --docker-logs
 ```
 
 ### 3. Limpando o Sistema
 
 ```bash
-# Torne o script executável
-chmod +x cleanup-paxos-k8s.sh
-
-# Execute o script de limpeza
-./cleanup-paxos-k8s.sh
+# Parar e remover os contêineres
+./dk-cleanup.sh
 ```
 
-O script perguntará se você deseja parar ou excluir o cluster Minikube após a limpeza.
+O script perguntará se você deseja remover as imagens e volumes após a limpeza.
 
 ## Scripts Disponíveis
 
-### 1. setup-kubernetes-wsl.sh
+### 1. setup-dependencies.sh
 
-**Propósito**: Preparar o ambiente Kubernetes no WSL.
+**Propósito**: Preparar o ambiente Linux para desenvolvimento.
 
 **Funcionalidades**:
-- Instala Docker, kubectl, Minikube
-- Configura permissões e grupos de usuário
-- Prepara o ambiente para execução do Kubernetes no WSL
+- Instala ferramentas de processamento (jq, curl)
+- Instala utilitários de rede
+- Configura Python e ambiente virtual
+- Instala dependências Python necessárias
 
 **Uso**:
 ```bash
-./setup-kubernetes-wsl.sh
+./setup-dependencies.sh
 ```
 
-### 2. deploy-paxos-k8s.sh
+### 2. dk-deploy.sh
 
-**Propósito**: Implantar o sistema Paxos no Kubernetes.
+**Propósito**: Implantar o sistema Paxos com Docker Compose.
 
 **Funcionalidades**:
-- Verifica pré-requisitos (Docker, kubectl, Minikube)
-- Constrói a imagem Docker para os nós
-- Aplica manifestos Kubernetes
-- Configura serviços e acessos
+- Verifica pré-requisitos (Docker, Docker Compose)
+- Constrói as imagens Docker
+- Inicia os contêineres em segundo plano
+- Verifica o status dos contêineres
 
 **Uso**:
 ```bash
-./deploy-paxos-k8s.sh
+./dk-deploy.sh
 ```
 
-### 3. run.sh
+### 3. dk-run.sh
 
-**Propósito**: Inicializar a rede Paxos após a implantação no Kubernetes.
+**Propósito**: Inicializar a rede Paxos após a implantação.
 
 **Funcionalidades**:
-- Verifica status dos pods
-- Inicia eleição de líder
-- Verifica a saúde do sistema
+- Verifica o status dos contêineres
+- Verifica a saúde de cada componente
+- Inicia eleição de líder se necessário
 - Exibe URLs de acesso
 
 **Uso**:
 ```bash
-./run.sh
+./dk-run.sh
 ```
 
-### 4. paxos-client.sh
+### 4. client.sh
 
 **Propósito**: Cliente interativo para o sistema Paxos.
 
@@ -380,7 +340,7 @@ O script perguntará se você deseja parar ou excluir o cluster Minikube após a
 
 **Uso**:
 ```bash
-./paxos-client.sh
+./client.sh
 ```
 
 ### 5. monitor.sh
@@ -391,25 +351,46 @@ O script perguntará se você deseja parar ou excluir o cluster Minikube após a
 - Visualização de logs de todos os componentes
 - Filtragem por tipo de nó
 - Atualização periódica
-- Integração com logs do Kubernetes
+- Integração com logs do Docker
 
 **Uso**:
 ```bash
 ./monitor.sh [opções]
 ```
 
-### 6. cleanup-paxos-k8s.sh
+### 6. dk-cleanup.sh
 
-**Propósito**: Limpar recursos Kubernetes.
+**Propósito**: Limpar recursos Docker.
 
 **Funcionalidades**:
-- Remove todos os recursos na ordem correta
-- Opção para parar ou excluir o cluster Minikube
+- Para e remove todos os contêineres
+- Opção para remover imagens
+- Opção para remover volumes
 - Limpeza completa do ambiente
 
 **Uso**:
 ```bash
-./cleanup-paxos-k8s.sh
+./dk-cleanup.sh
+```
+
+### 7. Scripts de Teste
+
+**Propósito**: Testar componentes individuais e o sistema completo.
+
+**Scripts disponíveis**:
+- `test/test-paxos.sh`: Diagnóstico completo do sistema
+- `test/test-proposer.sh`: Testes específicos para Proposers
+- `test/test-acceptor.sh`: Testes específicos para Acceptors
+- `test/test-learner.sh`: Testes específicos para Learners
+- `test/test-client.sh`: Testes específicos para Clients
+
+**Uso**:
+```bash
+# Teste completo do sistema
+./test/test-paxos.sh
+
+# Teste específico de proposers
+./test/test-proposer.sh
 ```
 
 ## Exemplos de Uso
@@ -418,27 +399,20 @@ O script perguntará se você deseja parar ou excluir o cluster Minikube após a
 
 ```bash
 # 1. Preparar o ambiente (uma única vez)
-./setup-kubernetes-wsl.sh
+./setup-dependencies.sh
 
-# Reiniciar WSL
-# No PowerShell: wsl --shutdown
-# Reabrir terminal WSL
+# 2. Implantar o sistema
+./dk-deploy.sh
 
-# 2. Iniciar o cluster Minikube
-minikube start --driver=docker
-
-# 3. Implantar o sistema
-./deploy-paxos-k8s.sh
-
-# 4. Inicializar a rede Paxos
-./run.sh
+# 3. Inicializar a rede Paxos
+./dk-run.sh
 ```
 
 ### Exemplo 2: Envio e Leitura de Valores
 
 ```bash
 # 1. Abrir o cliente interativo
-./paxos-client.sh
+./client.sh
 
 # 2. No menu, selecionar opção 2 (Enviar valor)
 # 3. Digitar um valor, por exemplo: "teste123"
@@ -453,7 +427,7 @@ minikube start --driver=docker
 ./monitor.sh
 
 # Em outro terminal, usar o cliente para enviar valores
-./paxos-client.sh
+./client.sh
 
 # Observar no monitor como a proposta passa pelos Proposers,
 # é aceita pelos Acceptors e finalmente aprendida pelos Learners
@@ -465,11 +439,11 @@ minikube start --driver=docker
 # 1. Iniciar o monitor
 ./monitor.sh
 
-# 2. Em outro terminal, excluir um acceptor
-kubectl scale deployment acceptor1 -n paxos --replicas=0
+# 2. Em outro terminal, parar um acceptor
+docker stop acceptor1
 
 # 3. Usar o cliente para enviar um novo valor
-./paxos-client.sh
+./client.sh
 # Selecionar opção 2 (Enviar valor)
 # Digitar um valor
 
@@ -477,52 +451,51 @@ kubectl scale deployment acceptor1 -n paxos --replicas=0
 # mesmo com um acceptor faltando
 
 # 5. Restaurar o acceptor
-kubectl scale deployment acceptor1 -n paxos --replicas=1
+docker start acceptor1
 ```
 
 ## Solução de Problemas
 
-### Problema: Pods não iniciam ou ficam em estado pendente
+### Problema: Contêineres não iniciam ou ficam em estado de erro
 
-**Sintomas**: Após executar `./deploy-paxos-k8s.sh`, alguns pods não atingem o estado "Running".
+**Sintomas**: Após executar `./dk-deploy.sh`, alguns contêineres não atingem o estado "Up".
 
 **Soluções**:
-1. Verificar eventos do Kubernetes:
+1. Verificar logs do Docker:
    ```bash
-   kubectl get events -n paxos
+   docker logs proposer1
    ```
-2. Verificar detalhes do pod:
+2. Verificar se há conflitos de porta:
    ```bash
-   kubectl describe pod <nome-do-pod> -n paxos
+   netstat -tuln | grep -E '300[1-3]|400[1-3]|500[1-2]|600[1-2]'
    ```
-3. Verificar logs do pod:
+3. Verificar se o Docker tem recursos suficientes:
    ```bash
-   kubectl logs <nome-do-pod> -n paxos
+   docker info | grep -E 'Memory|CPUs'
    ```
-4. Verificar recursos disponíveis no Minikube:
+4. Reiniciar o Docker:
    ```bash
-   minikube ssh -- free -h
-   minikube ssh -- df -h
+   sudo service docker restart
    ```
 
 ### Problema: Cliente não consegue se conectar aos serviços
 
-**Sintomas**: O script `./paxos-client.sh` mostra erros de conexão.
+**Sintomas**: O script `./client.sh` mostra erros de conexão.
 
 **Soluções**:
-1. Verificar se os pods estão em execução:
+1. Verificar se os contêineres estão em execução:
    ```bash
-   kubectl get pods -n paxos
+   docker ps | grep paxos
    ```
-2. Verificar detalhes dos serviços:
+2. Verificar logs dos contêineres:
    ```bash
-   kubectl get services -n paxos
+   docker logs client1
    ```
-3. Verificar encaminhamento de portas do Minikube:
+3. Verificar a rede Docker:
    ```bash
-   minikube service list -n paxos
+   docker network inspect paxos-network
    ```
-4. Reiniciar o script `run.sh` para verificar o estado do sistema
+4. Reiniciar o script `dk-run.sh` para verificar o estado do sistema
 
 ### Problema: Não há líder eleito
 
@@ -531,15 +504,15 @@ kubectl scale deployment acceptor1 -n paxos --replicas=1
 **Soluções**:
 1. Verificar logs dos proposers:
    ```bash
-   kubectl logs -l app=proposer1 -n paxos
+   docker logs proposer1
    ```
-2. Reiniciar o processo de eleição:
+2. Forçar uma nova eleição:
    ```bash
-   ./run.sh
+   docker exec proposer1 curl -X POST http://localhost:3001/propose -H 'Content-Type: application/json' -d '{"value":"force_election","client_id":9}'
    ```
 3. Verificar se há pelo menos um quórum de acceptors disponível (pelo menos 2 de 3):
    ```bash
-   kubectl get pods -n paxos -l role=acceptor
+   docker ps | grep acceptor
    ```
 
 ### Problema: Erros ao executar scripts
