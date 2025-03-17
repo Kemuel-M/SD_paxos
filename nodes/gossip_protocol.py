@@ -227,11 +227,16 @@ class GossipProtocol:
         received_nodes = data.get("nodes", {})
         received_leader = data.get("leader_id")
         timestamp = data.get("timestamp", time.time())
+        is_leader_update = data.get("is_leader_update", False)
         
         if not sender_id:
             return jsonify({"status": "error", "message": "Missing sender_id"}), 400
         
-        self.logger.debug(f"Recebido gossip de {sender_role} {sender_id} com {len(received_nodes)} nós")
+        # Log mais detalhado para atualizações de líder
+        if is_leader_update:
+            self.logger.info(f"Recebido gossip com atualização de líder de {sender_role} {sender_id}, novo líder: {received_leader}")
+        else:
+            self.logger.debug(f"Recebido gossip de {sender_role} {sender_id} com {len(received_nodes)} nós")
         
         updates = 0
         
@@ -289,9 +294,10 @@ class GossipProtocol:
                             self.logger.debug(f"Atualizado heartbeat do líder {node_id}: {current_heartbeat} -> {received_heartbeat}")
             
             # Atualizar informações de líder (se recebido)
+            # Priorizar atualizações de líder especificamente marcadas
             if received_leader is not None:
-                # Verificar se o líder recebido é diferente ou não temos líder
-                if not self.leader_id or received_leader != self.leader_id:
+                # Verificar se o líder recebido é diferente ou não temos líder ou se é uma atualização prioritária
+                if not self.leader_id or received_leader != self.leader_id or is_leader_update:
                     old_leader = self.leader_id
                     self.leader_id = received_leader
                     
@@ -329,12 +335,130 @@ class GossipProtocol:
                         if received_heartbeat > current_heartbeat:
                             self.known_nodes[str(received_leader)]['metadata'] = leader_metadata
                             self.logger.debug(f"Heartbeat do líder atualizado: {current_heartbeat} -> {received_heartbeat}")
+                
+                # Propagar atualização de líder para outros nós se for uma atualização prioritária
+                # E se estivermos em papel de propagador (proposer ou acceptor)
+                if is_leader_update and self.node_role in ['proposer', 'acceptor']:
+                    self.logger.debug(f"Propagando atualização de líder recebida para outros nós")
+                    # Enviar apenas para alguns nós para evitar tempestade de mensagens
+                    threading.Thread(target=self._send_leader_update_to_random_nodes, args=(2,)).start()
         
         return jsonify({
             "status": "ok",
             "updates": updates,
             "node_count": len(self.known_nodes)
         }), 200
+    
+    def _send_leader_update_to_random_nodes(self, fanout=2):
+        """
+        Envia atualizações sobre o líder para nós aleatórios.
+        
+        Args:
+            fanout (int): Número de nós para enviar a atualização
+        """
+        # Coletar todos os nós, exceto este nó
+        with self.lock:
+            other_nodes = {k: v for k, v in self.known_nodes.items() 
+                         if k != str(self.node_id) and time.time() - v['last_seen'] <= self.node_timeout}
+        
+        if not other_nodes:
+            self.logger.debug("Nenhum outro nó conhecido para propagar informação de líder")
+            return
+        
+        # Selecionar fanout nós aleatórios (ou menos se não houver suficientes)
+        num_nodes = min(fanout, len(other_nodes))
+        if num_nodes == 0:
+            return
+                
+        targets = random.sample(list(other_nodes.values()), num_nodes)
+        
+        # Preparar dados para envio
+        with self.lock:
+            leader_node_info = self.known_nodes.get(str(self.leader_id), {})
+            
+            gossip_data = {
+                "sender_id": self.node_id,
+                "sender_role": self.node_role,
+                "nodes": {str(self.leader_id): leader_node_info} if leader_node_info else {},
+                "leader_id": self.leader_id,
+                "timestamp": time.time(),
+                "is_leader_update": True  # Marcar como atualização específica de líder
+            }
+        
+        # Enviar para os nós selecionados
+        for target in targets:
+            try:
+                target_url = f"http://{target['address']}:{target['port']}/gossip"
+                requests.post(target_url, json=gossip_data, timeout=2)
+            except Exception as e:
+                self.logger.debug(f"Erro ao propagar informação de líder para {target['id']}: {e}")
+    
+    def _send_leader_update_to_all_nodes(self):
+        """
+        Envia atualizações sobre o líder para todos os nós conhecidos.
+        Isso ajuda a propagar informações de liderança mais rapidamente.
+        """
+        self.logger.info(f"Propagando informação de líder ({self.leader_id}) para todos os nós")
+        
+        # Coletar todos os nós, exceto este nó
+        with self.lock:
+            all_nodes = {k: v for k, v in self.known_nodes.items() 
+                       if k != str(self.node_id) and time.time() - v['last_seen'] <= self.node_timeout}
+        
+        if not all_nodes:
+            self.logger.debug("Nenhum outro nó conhecido para propagar informação de líder")
+            return
+        
+        # Preparar dados para envio
+        with self.lock:
+            # Aumentar a versão deste nó
+            self.self_version += 1
+            self.known_nodes[str(self.node_id)]['version'] = self.self_version
+            self.known_nodes[str(self.node_id)]['last_seen'] = time.time()
+            
+            # Atualizar metadata para refletir status de líder
+            if self.leader_id == self.node_id and self.node_role == 'proposer':
+                self.known_nodes[str(self.node_id)]['metadata']['last_heartbeat'] = time.time()
+                self.known_nodes[str(self.node_id)]['metadata']['is_leader'] = True
+            
+            gossip_data = {
+                "sender_id": self.node_id,
+                "sender_role": self.node_role,
+                "nodes": self.known_nodes,
+                "leader_id": self.leader_id,
+                "timestamp": time.time(),
+                "is_leader_update": True  # Marcar como atualização específica de líder
+            }
+        
+        # Enviar para todos os nós conhecidos
+        for node_id, node in all_nodes.items():
+            try:
+                target_url = f"http://{node['address']}:{node['port']}/gossip"
+                
+                # Implementar retry com backoff
+                max_retries = 3
+                base_timeout = 1.0
+                
+                for retry in range(max_retries):
+                    try:
+                        timeout = base_timeout * (1.5 ** retry)
+                        jitter = random.uniform(0.1, 0.3)
+                        
+                        response = requests.post(target_url, json=gossip_data, timeout=timeout + jitter)
+                        
+                        if response.status_code == 200:
+                            self.logger.debug(f"Informação de líder enviada com sucesso para {node_id}")
+                            break  # Sucesso, saímos do loop
+                        else:
+                            self.logger.warning(f"Falha ao enviar informação de líder para {node_id}: {response.text}")
+                    except Exception as e:
+                        if retry == max_retries - 1:
+                            self.logger.warning(f"Erro ao enviar informação de líder para {node_id} após {max_retries} tentativas: {e}")
+                        
+                        if retry < max_retries - 1:
+                            time.sleep(base_timeout * (1.5 ** retry) + jitter)
+            except Exception as e:
+                self.logger.warning(f"Erro ao configurar envio de informação de líder para {node_id}: {e}")
     
     def _remove_inactive_nodes(self):
         """Remove nós que não enviaram heartbeat por muito tempo."""
@@ -396,12 +520,19 @@ class GossipProtocol:
                     "last_heartbeat": time.time()
                 })
                 self.logger.info(f"Este nó ({self.node_id}) agora é o líder")
+                
+                # Forçar propagação imediata da informação de líder
+                threading.Thread(target=self._send_leader_update_to_all_nodes, daemon=True).start()
             else:
                 # Se anteriormente era líder e agora não é mais
                 if old_leader == self.node_id and leader_id != self.node_id and self.node_role == 'proposer':
                     self.update_local_metadata({"is_leader": False})
                 
                 self.logger.info(f"Líder atualizado: {old_leader} -> {leader_id}")
+                
+                # Propagar informação de novo líder
+                if self.node_role in ['proposer', 'acceptor']:
+                    threading.Thread(target=self._send_leader_update_to_random_nodes, daemon=True).start()
     
     def get_leader(self):
         """

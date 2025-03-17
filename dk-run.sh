@@ -94,126 +94,156 @@ done
 exec_in_container() {
     local container=$1
     local command=$2
+    local timeout=$3
     
-    docker exec $container bash -c "$command" 2>/dev/null
+    if [ -z "$timeout" ]; then
+        timeout=5
+    fi
+    
+    docker exec $container timeout $timeout bash -c "$command" 2>/dev/null
     return $?
 }
 
-# Função para tentar múltiplas vezes iniciar eleição
-force_election_with_retry() {
-    max_attempts=5
-    attempt=1
-    success=false
+# Função para tentar eleição de líder com timeout
+force_election_with_timeout() {
+    local attempt=$1
+    local proposer=$2
+    local port=$3
     
-    echo -e "${YELLOW}Tentando iniciar eleição de líder (até $max_attempts tentativas)...${NC}"
+    echo -e "${YELLOW}Tentativa $attempt: Via $proposer (porta $port)${NC}"
     
-    while [ $attempt -le $max_attempts ] && [ "$success" = false ]; do
-        echo -e "${YELLOW}Tentativa $attempt/${max_attempts}...${NC}"
-        
-        # Tente através de proposer1
-        resp1=$(exec_in_container "proposer1" "curl -s -X POST http://localhost:3001/propose -H 'Content-Type: application/json' -d '{\"value\":\"force_election\", \"client_id\":9}'")
-        
-        # Espere um pouco
-        sleep 5
-        
-        # Verificar se a eleição foi bem-sucedida
-        leader=$(exec_in_container "proposer1" "curl -s http://localhost:3001/view-logs | grep -o '\"current_leader\":[^,}]*' | cut -d':' -f2 | tr -d '\"' 2>/dev/null")
-        
-        if [ -n "$leader" ] && [ "$leader" != "null" ] && [ "$leader" != "None" ]; then
-            echo -e "${GREEN}Líder eleito: Proposer $leader${NC}"
-            success=true
-            break
-        fi
-        
-        # Se falhar com proposer1, tente proposer2
-        if [ $attempt -eq 2 ]; then
-            echo -e "${YELLOW}Tentando via proposer2...${NC}"
-            resp2=$(exec_in_container "proposer2" "curl -s -X POST http://localhost:3002/propose -H 'Content-Type: application/json' -d '{\"value\":\"force_election2\", \"client_id\":9}'")
-            sleep 5
-        fi
-        
-        # Se falhar com proposer2, tente proposer3
-        if [ $attempt -eq 3 ]; then
-            echo -e "${YELLOW}Tentando via proposer3...${NC}"
-            resp3=$(exec_in_container "proposer3" "curl -s -X POST http://localhost:3003/propose -H 'Content-Type: application/json' -d '{\"value\":\"force_election3\", \"client_id\":9}'")
-            sleep 5
-        fi
-        
-        # Se ainda falhar, tente com Python diretamente
-        if [ $attempt -eq 4 ]; then
-            echo -e "${YELLOW}Tentando eleição forçada via Python...${NC}"
-            python_script=$(cat <<EOF
+    # Usar timeout para não ficar preso
+    response=$(docker exec $proposer timeout 3 curl -s -X POST "http://localhost:$port/propose" \
+        -H 'Content-Type: application/json' \
+        -d "{\"value\":\"force_election_$attempt\", \"client_id\":9, \"is_leader_election\":true}")
+    
+    echo -e "${CYAN}Resposta: ${response:0:100}${NC}"  # Mostrar parte inicial da resposta
+    
+    # Esperar um pouco para permitir que a eleição seja processada
+    sleep 2
+    
+    # Verificar se lider foi eleito
+    leader=$(docker exec $proposer timeout 2 curl -s "http://localhost:$port/view-logs" | grep -o '"current_leader":[^,}]*' | cut -d':' -f2 | tr -d '\"' 2>/dev/null)
+    
+    # Se líder não for null ou vazio, retornar sucesso
+    if [ ! -z "$leader" ] && [ "$leader" != "null" ] && [ "$leader" != "None" ] && [ "$leader" != "\"None\"" ]; then
+        echo -e "${GREEN}Líder eleito: Proposer $leader${NC}"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Função para tentar força com timeout
+try_python_election_with_timeout() {
+    echo -e "${YELLOW}Tentando eleição forçada via Python...${NC}"
+    
+    # Script Python direto e simples para tentar eleição
+    python_script=$(cat <<EOF
 import json
 import time
 import requests
 import random
 
-def force_election():
-    print("Forçando eleição de líder via Python...")
-    proposers = [
-        ("localhost", 3001),
-        ("proposer1", 3001),
-        ("proposer2", 3002),
-        ("proposer3", 3003)
-    ]
-    
-    # Tentar cada proposer em ordem aleatória
-    random.shuffle(proposers)
-    
-    for proposer, port in proposers:
-        try:
-            print(f"Tentando via {proposer}:{port}...")
-            response = requests.post(
-                f"http://{proposer}:{port}/propose",
-                json={"value": f"force_election_python_{random.randint(1000,9999)}", "client_id": 9},
-                timeout=5
-            )
-            print(f"Resposta: {response.status_code}")
-            if response.status_code == 200:
-                print("Requisição aceita!")
-            time.sleep(3)
-            
-            # Verificar se há líder
-            status = requests.get(f"http://{proposer}:{port}/view-logs", timeout=2)
-            if status.status_code == 200:
-                leader = status.json().get('current_leader')
-                if leader:
-                    print(f"Líder eleito: {leader}")
-                    return True
-        except Exception as e:
-            print(f"Erro: {e}")
-    
-    return False
+# Tentar cada proposer
+proposers = [
+    ("localhost", 3001),
+    ("localhost", 3002),
+    ("localhost", 3003)
+]
 
-force_election()
+# Tentar cada um em ordem
+for proposer, port in proposers:
+    print(f"Tentando eleição via {proposer}:{port}")
+    try:
+        data = {
+            "value": f"force_election_python_{random.randint(1000,9999)}", 
+            "client_id": 9,
+            "is_leader_election": True
+        }
+        
+        # Timeout curto para não ficar preso
+        response = requests.post(
+            f"http://{proposer}:{port}/propose",
+            json=data,
+            timeout=3
+        )
+        print(f"Status: {response.status_code}")
+        
+        # Verificar se há sucesso
+        if response.status_code == 200:
+            print("Requisição de eleição enviada com sucesso")
+            # Esperar um pouco
+            time.sleep(2)
+            
+            # Verificar se líder foi eleito
+            try:
+                status = requests.get(f"http://{proposer}:{port}/view-logs", timeout=2)
+                if status.status_code == 200:
+                    leader = status.json().get('current_leader')
+                    if leader:
+                        print(f"Líder eleito: {leader}")
+                        exit(0)  # Sucesso
+            except Exception as e:
+                print(f"Erro ao verificar líder: {e}")
+    except Exception as e:
+        print(f"Erro: {e}")
+
+print("Não conseguiu eleger um líder via Python")
+exit(1)  # Falha
 EOF
 )
-            exec_in_container "proposer1" "python3 -c \"$python_script\""
-            sleep 5
-        fi
-        
-        attempt=$((attempt + 1))
-        sleep 2
-    done
-    
-    if [ "$success" = false ]; then
-        echo -e "${RED}[AVISO] Não foi possível eleger um líder após $max_attempts tentativas.${NC}"
-        echo -e "${YELLOW}O sistema pode não funcionar corretamente até que um líder seja eleito.${NC}"
-        return 1
-    fi
-    
-    return 0
+
+    # Executar o script em qualquer proposer com timeout
+    timeout 10 docker exec proposer1 python3 -c "$python_script"
+    return $?
 }
 
 # Verificar se há um líder eleito e iniciar eleição se necessário
 echo -e "\n${YELLOW}Verificando eleição de líder...${NC}"
-LEADER_ID=$(exec_in_container "proposer1" "curl -s http://localhost:3001/view-logs | python3 -c \"import sys, json; print(json.load(sys.stdin).get('current_leader', 'None'))\"")
+LEADER_ID=$(docker exec proposer1 timeout 3 curl -s http://localhost:3001/view-logs | grep -o '"current_leader":[^,}]*' | cut -d':' -f2 | tr -d '\"' 2>/dev/null)
 
-if [ "$LEADER_ID" == "None" ] || [ -z "$LEADER_ID" ] || [ "$LEADER_ID" == "null" ]; then
+if [ -z "$LEADER_ID" ] || [ "$LEADER_ID" == "null" ] || [ "$LEADER_ID" == "None" ] || [ "$LEADER_ID" == "\"None\"" ]; then
     echo -e "${YELLOW}Nenhum líder eleito. Forçando eleição...${NC}"
-    force_election_with_retry
+    
+    # Tentar forçar eleição com timeout para cada proposer
+    MAX_ATTEMPTS=5
+    
+    echo -e "${YELLOW}Tentando iniciar eleição de líder (até $MAX_ATTEMPTS tentativas)...${NC}"
+    
+    # Tentativa 1 - proposer1
+    if force_election_with_timeout 1 "proposer1" 3001; then
+        ELECTION_SUCCESS=true
+    # Tentativa 2 - proposer2
+    elif force_election_with_timeout 2 "proposer2" 3002; then
+        ELECTION_SUCCESS=true
+    # Tentativa 3 - proposer3
+    elif force_election_with_timeout 3 "proposer3" 3003; then
+        ELECTION_SUCCESS=true
+    # Tentativa 4 - script Python
+    elif try_python_election_with_timeout; then
+        ELECTION_SUCCESS=true
+    # Tentativa 5 - cliente
+    else
+        echo -e "${YELLOW}Tentativa 5: Via client1${NC}"
+        docker exec client1 timeout 3 curl -s -X POST "http://localhost:6001/send" -H 'Content-Type: application/json' -d '{"value":"force_election_final"}'
+        sleep 3
+        
+        # Verificar uma última vez
+        LEADER_ID=$(docker exec proposer1 timeout 2 curl -s http://localhost:3001/view-logs | grep -o '"current_leader":[^,}]*' | cut -d':' -f2 | tr -d '\"' 2>/dev/null)
+        
+        if [ ! -z "$LEADER_ID" ] && [ "$LEADER_ID" != "null" ] && [ "$LEADER_ID" != "None" ] && [ "$LEADER_ID" != "\"None\"" ]; then
+            echo -e "${GREEN}Líder eleito na última tentativa: Proposer $LEADER_ID${NC}"
+            ELECTION_SUCCESS=true
+        else
+            ELECTION_SUCCESS=false
+            echo -e "${RED}[AVISO] Não foi possível eleger um líder após várias tentativas.${NC}"
+            echo -e "${YELLOW}O sistema pode funcionar mesmo sem um líder eleito, mas com performance reduzida.${NC}"
+        fi
+    fi
 else
     echo -e "${GREEN}Líder atual: Proposer $LEADER_ID${NC}"
+    ELECTION_SUCCESS=true
 fi
 
 # Obter URLs de acesso

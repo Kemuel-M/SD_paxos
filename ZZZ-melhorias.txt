@@ -116,9 +116,11 @@ acceptor:
    testar se o accepter consegue se comunicar com o learner.
 
 
-
-
-
+refaca do zero todo o protocolo de rede paxos nos arquivos:
+base_node.py
+proposer_node.py
+acceptor_node.py
+gossip_protocol.py
 
 
 
