@@ -9,8 +9,6 @@ CYAN='\033[0;36m'
 GRAY='\033[0;37m'
 NC='\033[0m' # No Color
 
-NAMESPACE="paxos"
-
 show_section_header() {
     echo -e "\n${BLUE}═════════════════════════════════════════════════════════════════${NC}"
     echo -e "${BLUE}              $1              ${NC}"
@@ -50,138 +48,99 @@ show_section_header "SISTEMA PAXOS - DIAGNÓSTICO COMPLETO"
 # Verificar prerequisites
 show_subsection_header "VERIFICANDO PRÉ-REQUISITOS"
 
-# Verificar kubectl
-if ! command -v kubectl &> /dev/null; then
-    echo -e "${RED}[ERRO] kubectl não encontrado. Por favor, instale o kubectl para continuar.${NC}"
+# Verificar docker
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}[ERRO] Docker não encontrado. Por favor, instale o Docker para continuar.${NC}"
     exit 1
 else
-    echo -e "${GREEN}✓ kubectl encontrado${NC}"
+    echo -e "${GREEN}✓ Docker encontrado${NC}"
 fi
 
-# Verificar minikube
-if ! command -v minikube &> /dev/null; then
-    echo -e "${RED}[ERRO] minikube não encontrado. Por favor, instale o minikube para continuar.${NC}"
+# Verificar docker-compose
+if ! command -v docker-compose &> /dev/null; then
+    echo -e "${RED}[ERRO] Docker Compose não encontrado. Por favor, instale o Docker Compose para continuar.${NC}"
     exit 1
 else
-    echo -e "${GREEN}✓ minikube encontrado: $(minikube version --short)${NC}"
+    echo -e "${GREEN}✓ Docker Compose encontrado: $(docker-compose --version | head -n 1)${NC}"
 fi
 
-# Verificar status do minikube
-if ! minikube status | grep -q "Running"; then
-    echo -e "${RED}[ERRO] minikube não está rodando. Por favor, inicie o minikube antes de continuar.${NC}"
+# Verificar status do Docker
+if ! docker info &> /dev/null; then
+    echo -e "${RED}[ERRO] Docker não está rodando. Por favor, inicie o serviço Docker antes de continuar.${NC}"
     exit 1
 else
-    echo -e "${GREEN}✓ minikube está rodando${NC}"
+    echo -e "${GREEN}✓ Docker está rodando${NC}"
 fi
 
-# Verificar namespace paxos
-if ! kubectl get namespace $NAMESPACE &> /dev/null; then
-    echo -e "${RED}[ERRO] Namespace '$NAMESPACE' não encontrado. Execute ./deploy-paxos-k8s.sh primeiro.${NC}"
+# Verificar se os contêineres estão em execução
+if ! docker ps | grep -q "proposer1"; then
+    echo -e "${RED}[ERRO] Contêineres do Paxos não encontrados. Execute ./deploy.sh primeiro.${NC}"
     exit 1
 else
-    echo -e "${GREEN}✓ namespace '$NAMESPACE' encontrado${NC}"
+    echo -e "${GREEN}✓ Contêineres Paxos encontrados${NC}"
 fi
 
-# 1. Verificação de serviços e pods
-show_section_header "VERIFICAÇÃO DE SERVIÇOS E PODS"
+# 1. Verificação de serviços e contêineres
+show_section_header "VERIFICAÇÃO DE SERVIÇOS E CONTÊINERES"
 
-# Verificar todos os serviços
-show_subsection_header "SERVIÇOS CRIADOS"
-run_command "kubectl get services -n $NAMESPACE"
+# Verificar todos os contêineres
+show_subsection_header "CONTÊINERES CRIADOS"
+run_command "docker-compose ps"
 
-# Verificar todos os pods
-show_subsection_header "PODS CRIADOS"
-run_command "kubectl get pods -n $NAMESPACE"
-
-# Obter URLs dos serviços externos
+# Obter URLs dos serviços
 show_subsection_header "URLs DOS SERVIÇOS"
 
-echo -e "${YELLOW}Obtendo URLs dos serviços via NodePort...${NC}"
+echo -e "${YELLOW}Obtendo URLs dos serviços...${NC}"
 
-# Extrair informações diretamente sem usar o comando minikube service --url
-get_node_port_url() {
-    local service=$1
-    local timeout=5
+# Mostrar URLs construídas para cada serviço
+echo -e "\n${YELLOW}Client1:${NC}"
+echo -e "API: ${CYAN}http://localhost:6001${NC}"
+echo -e "Monitor: ${CYAN}http://localhost:8009${NC}"
 
-    # Usar timeout para evitar que o comando fique travado
-    local node_ip=$(timeout $timeout minikube ip 2>/dev/null || echo "")
-    
-    if [ -z "$node_ip" ]; then
-        echo -e "${YELLOW}Não foi possível obter o IP do minikube, usando localhost...${NC}"
-        node_ip="localhost"
-    fi
+echo -e "\n${YELLOW}Proposer1:${NC}"
+echo -e "API: ${CYAN}http://localhost:3001${NC}"
+echo -e "Monitor: ${CYAN}http://localhost:8001${NC}"
 
-    # Obter as portas NodePort
-    local api_port=$(kubectl get service $service -n $NAMESPACE -o jsonpath="{.spec.ports[?(@.name=='api')].nodePort}")
-    local monitor_port=$(kubectl get service $service -n $NAMESPACE -o jsonpath="{.spec.ports[?(@.name=='monitor')].nodePort}")
-    
-    if [ -n "$api_port" ]; then
-        echo -e "API: ${CYAN}http://$node_ip:$api_port${NC}"
-    else
-        echo -e "API: ${RED}[Não disponível]${NC}"
-    fi
-    
-    if [ -n "$monitor_port" ]; then
-        echo -e "Monitor: ${CYAN}http://$node_ip:$monitor_port${NC}"
-    else
-        echo -e "Monitor: ${RED}[Não disponível]${NC}"
-    fi
-}
+echo -e "\n${YELLOW}Learner1:${NC}"
+echo -e "API: ${CYAN}http://localhost:5001${NC}"
+echo -e "Monitor: ${CYAN}http://localhost:8007${NC}"
 
-# Mostrar URLs construídas para cada serviço externo
-echo -e "\n${YELLOW}Client1-external:${NC}"
-get_node_port_url "client1-external"
+# 2. Verificação de status dos contêineres
+show_section_header "VERIFICAÇÃO DE STATUS DOS CONTÊINERES"
 
-echo -e "\n${YELLOW}Proposer1-external:${NC}"
-get_node_port_url "proposer1-external"
-
-echo -e "\n${YELLOW}Learner1-external:${NC}"
-get_node_port_url "learner1-external"
-
-# Mostrar comando alternativo
-echo -e "\n${YELLOW}Para acessar os serviços diretamente via browser ou terminal:${NC}"
-echo -e "1. ${CYAN}Use as URLs acima${NC} com o IP/porta NodePort"
-echo -e "2. ${CYAN}OU abra um novo terminal e execute:${NC}"
-echo -e "   ${GRAY}minikube service client1-external -n $NAMESPACE --url${NC}"
-echo -e "   ${GRAY}minikube service proposer1-external -n $NAMESPACE --url${NC}"
-
-# 2. Verificação de definições e status dos deployments
-show_section_header "VERIFICAÇÃO DE DEPLOYMENTS"
-
-# Verificar status de cada deployment
-show_subsection_header "STATUS DOS DEPLOYMENTS"
-for deployment in proposer1 proposer2 proposer3 acceptor1 acceptor2 acceptor3 learner1 learner2 client1 client2; do
-    echo -e "${YELLOW}Verificando status de $deployment:${NC}"
-    kubectl rollout status deployment/$deployment -n $NAMESPACE --timeout=10s
+# Verificar status de cada contêiner
+show_subsection_header "STATUS DOS CONTÊINERES"
+for container in proposer1 proposer2 proposer3 acceptor1 acceptor2 acceptor3 learner1 learner2 client1 client2; do
+    echo -e "${YELLOW}Verificando status de $container:${NC}"
+    docker inspect -f '{{.State.Status}}' $container
 done
 
 # Verificar definição detalhada de um proposer
 show_subsection_header "DEFINIÇÃO DETALHADA DO PROPOSER1"
-run_command "kubectl describe pod -n $NAMESPACE -l app=proposer1 | head -n 30"
+run_command "docker inspect proposer1 | grep -A 10 'State\|NetworkSettings\|HostConfig' | head -n 30"
 
-# 3. Verificação de redes e DNS
-show_section_header "VERIFICAÇÃO DE REDE E DNS"
+# 3. Verificação de redes
+show_section_header "VERIFICAÇÃO DE REDE"
 
-# Verificar o status do CoreDNS
-show_subsection_header "STATUS DO COREDNS"
-run_command "kubectl get pods -n kube-system -l k8s-app=kube-dns"
+# Verificar a rede Docker
+show_subsection_header "REDES DOCKER DISPONÍVEIS"
+run_command "docker network ls | grep -E 'NETWORK|paxos'"
 
-# Teste de DNS dentro do cluster
-show_subsection_header "TESTE DE DNS DENTRO DO CLUSTER"
-echo -e "${YELLOW}Executando teste de DNS dentro do cluster...${NC}"
-kubectl run -n $NAMESPACE dns-test --rm -i --restart=Never --image=busybox:1.28 -- nslookup kubernetes.default
+# Detalhar a rede Paxos
+show_subsection_header "DETALHES DA REDE PAXOS"
+run_command "docker network inspect $(docker network ls | grep paxos | awk '{print $1}') | head -n 30"
 
-# Teste de Conectividade entre Pods
-show_subsection_header "TESTE DE CONECTIVIDADE ENTRE PODS"
-echo -e "${YELLOW}Testando conectividade entre pods...${NC}"
+# Teste de Conectividade entre Contêineres
+show_subsection_header "TESTE DE CONECTIVIDADE ENTRE CONTÊINERES"
+echo -e "${YELLOW}Testando conectividade entre contêineres...${NC}"
 
 test_script=$(cat <<EOF
 #!/bin/sh
 echo "Testando conexões para outros serviços..."
 echo "\n=== Teste de DNS para serviços Paxos ==="
 for svc in proposer1 proposer2 proposer3 acceptor1 acceptor2 acceptor3 learner1 learner2 client1 client2; do
-  echo -n "Resolvendo \$svc... "
-  if nslookup \$svc.$NAMESPACE.svc.cluster.local > /dev/null 2>&1; then
+  echo -n "Resolução de \$svc... "
+  if ping -c 1 \$svc > /dev/null 2>&1; then
     echo "✅ OK"
   else
     echo "❌ FALHA"
@@ -190,8 +149,19 @@ done
 
 echo "\n=== Teste de conectividade HTTP ==="
 for svc in proposer1 proposer2 proposer3 acceptor1 acceptor2 acceptor3 learner1 learner2 client1 client2; do
-  echo -n "Conectando a \$svc:8000/health... "
-  if wget -q --spider --timeout=2 http://\$svc.$NAMESPACE.svc.cluster.local:8000/health 2>/dev/null; then
+  port=8000
+  if [[ \$svc == proposer* ]]; then
+    port=\$((3000 + \${svc#proposer}))
+  elif [[ \$svc == acceptor* ]]; then
+    port=\$((4000 + \${svc#acceptor}))
+  elif [[ \$svc == learner* ]]; then
+    port=\$((5000 + \${svc#learner}))
+  elif [[ \$svc == client* ]]; then
+    port=\$((6000 + \${svc#client}))
+  fi
+  
+  echo -n "Conectando a \$svc:\$port/health... "
+  if wget -q --spider --timeout=2 http://\$svc:\$port/health 2>/dev/null; then
     echo "✅ OK"
   else
     echo "❌ FALHA"
@@ -200,17 +170,17 @@ done
 EOF
 )
 
-kubectl run -n $NAMESPACE network-test --rm -i --restart=Never --image=busybox:1.28 --command -- sh -c "$test_script"
+docker exec proposer1 sh -c "$test_script"
 
 # 4. Verificação de logs
 show_section_header "VERIFICAÇÃO DE LOGS"
 
 # Função para obter logs condensados
 get_condensed_logs() {
-    local app=$1
+    local container=$1
     local lines=${2:-20}
-    echo -e "${YELLOW}Últimas $lines linhas de logs para $app:${NC}"
-    kubectl logs -n $NAMESPACE -l app=$app --tail=$lines
+    echo -e "${YELLOW}Últimas $lines linhas de logs para $container:${NC}"
+    docker logs $container --tail=$lines
 }
 
 # Verificar logs dos principais componentes
@@ -228,7 +198,7 @@ show_section_header "TESTE DE FUNCIONALIDADE DO SISTEMA"
 
 # Verificar se há um líder eleito
 show_subsection_header "VERIFICAÇÃO DE LÍDER"
-leader_check=$(kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") -- curl -s http://localhost:3001/view-logs)
+leader_check=$(docker exec proposer1 curl -s http://localhost:3001/view-logs)
 current_leader=$(echo $leader_check | grep -o '"current_leader":[^,}]*' | cut -d':' -f2 | tr -d '"' 2>/dev/null)
 
 if [ -z "$current_leader" ] || [ "$current_leader" = "null" ] || [ "$current_leader" = "None" ]; then
@@ -236,14 +206,14 @@ if [ -z "$current_leader" ] || [ "$current_leader" = "null" ] || [ "$current_lea
     
     # Tentar forçar eleição
     echo -e "${YELLOW}Tentando forçar eleição de líder...${NC}"
-    election_result=$(kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") -- curl -s -X POST http://localhost:3001/propose -H 'Content-Type: application/json' -d '{"value":"force_election_test","client_id":9}')
+    election_result=$(docker exec proposer1 curl -s -X POST http://localhost:3001/propose -H 'Content-Type: application/json' -d '{"value":"force_election_test","client_id":9}')
     echo -e "Resultado: $election_result"
     
     # Aguardar um pouco e verificar novamente
     echo -e "${YELLOW}Aguardando 5 segundos para eleição...${NC}"
     sleep 5
     
-    leader_check=$(kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=proposer1 -o jsonpath="{.items[0].metadata.name}") -- curl -s http://localhost:3001/view-logs)
+    leader_check=$(docker exec proposer1 curl -s http://localhost:3001/view-logs)
     current_leader=$(echo $leader_check | grep -o '"current_leader":[^,}]*' | cut -d':' -f2 | tr -d '"' 2>/dev/null)
     
     if [ -z "$current_leader" ] || [ "$current_leader" = "null" ] || [ "$current_leader" = "None" ]; then
@@ -258,7 +228,7 @@ fi
 # Teste de envio de proposta
 show_subsection_header "TESTE DE ENVIO DE PROPOSTA"
 echo -e "${YELLOW}Enviando proposta de teste...${NC}"
-proposal_result=$(kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=client1 -o jsonpath="{.items[0].metadata.name}") -- curl -s -X POST http://localhost:6001/send -H 'Content-Type: application/json' -d '{"value":"test_value_'$(date +%s)'"}')
+proposal_result=$(docker exec client1 curl -s -X POST http://localhost:6001/send -H 'Content-Type: application/json' -d '{"value":"test_value_'$(date +%s)'"}')
 echo -e "Resultado da proposta: $proposal_result"
 
 # Aguardar processamento
@@ -267,7 +237,7 @@ sleep 3
 
 # Verificar se o valor foi aprendido
 echo -e "${YELLOW}Verificando valores aprendidos...${NC}"
-learned_values=$(kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=client1 -o jsonpath="{.items[0].metadata.name}") -- curl -s http://localhost:6001/read)
+learned_values=$(docker exec client1 curl -s http://localhost:6001/read)
 echo -e "Valores aprendidos: $learned_values"
 
 # 6. Teste de resiliência (opcional)
@@ -276,23 +246,26 @@ echo -e "${YELLOW}Deseja executar testes de resiliência? [s/N]${NC}"
 read -p "> " run_resilience
 
 if [[ "$run_resilience" == "s" || "$run_resilience" == "S" ]]; then
-    echo -e "${YELLOW}Simulando falha do pod acceptor1...${NC}"
-    kubectl delete pod -n $NAMESPACE -l app=acceptor1 --wait=false
+    echo -e "${YELLOW}Simulando falha do contêiner acceptor1...${NC}"
+    docker stop acceptor1
     
-    echo -e "${YELLOW}Aguardando recriação do pod...${NC}"
+    echo -e "${YELLOW}Aguardando 5 segundos...${NC}"
     sleep 5
     
-    echo -e "${YELLOW}Status dos pods após simulação de falha:${NC}"
-    kubectl get pods -n $NAMESPACE
+    echo -e "${YELLOW}Reiniciando contêiner acceptor1...${NC}"
+    docker start acceptor1
+    
+    echo -e "${YELLOW}Status dos contêineres após simulação de falha:${NC}"
+    docker-compose ps
     
     echo -e "${YELLOW}Tentando enviar nova proposta após falha...${NC}"
-    kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=client1 -o jsonpath="{.items[0].metadata.name}") -- curl -s -X POST http://localhost:6001/send -H 'Content-Type: application/json' -d '{"value":"test_after_failure_'$(date +%s)'"}'
+    docker exec client1 curl -s -X POST http://localhost:6001/send -H 'Content-Type: application/json' -d '{"value":"test_after_failure_'$(date +%s)'"}'
     
     echo -e "${YELLOW}Aguardando processamento...${NC}"
     sleep 3
     
     echo -e "${YELLOW}Verificando valores aprendidos após falha:${NC}"
-    kubectl exec -n $NAMESPACE $(kubectl get pods -n $NAMESPACE -l app=client1 -o jsonpath="{.items[0].metadata.name}") -- curl -s http://localhost:6001/read
+    docker exec client1 curl -s http://localhost:6001/read
 else
     echo -e "${GRAY}Testes de resiliência pulados${NC}"
 fi
@@ -300,27 +273,26 @@ fi
 # 7. Resumo e verificação final
 show_section_header "RESUMO DO DIAGNÓSTICO"
 
-# Verificar status final de todos os pods
-echo -e "${YELLOW}Status final de todos os pods:${NC}"
-kubectl get pods -n $NAMESPACE
+# Verificar status final de todos os contêineres
+echo -e "${YELLOW}Status final de todos os contêineres:${NC}"
+docker-compose ps
 
-# Verificar status de cada componente por tipo
-pods_status=$(kubectl get pods -n $NAMESPACE -o json)
-
-total_pods=$(echo "$pods_status" | jq '.items | length')
-running_pods=$(echo "$pods_status" | jq '[.items[] | select(.status.phase=="Running")] | length')
-ready_pods=$(echo "$pods_status" | jq '[.items[] | select(.status.containerStatuses[0].ready==true)] | length')
+# Obter estatísticas dos contêineres
+echo -e "\n${YELLOW}Estatísticas dos contêineres:${NC}"
+docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}\t{{.BlockIO}}"
 
 # Exibir resumo
-echo -e "\n${CYAN}RESUMO DE STATUS:${NC}"
-echo -e "Total de pods: $total_pods"
-echo -e "Pods rodando: $running_pods"
-echo -e "Pods prontos: $ready_pods"
+total_containers=$(docker-compose ps -q | wc -l)
+running_containers=$(docker-compose ps | grep "Up" | wc -l)
 
-if [ "$ready_pods" -eq "$total_pods" ]; then
-    echo -e "\n${GREEN}✅ TODOS OS PODS ESTÃO PRONTOS E FUNCIONANDO${NC}"
+echo -e "\n${CYAN}RESUMO DE STATUS:${NC}"
+echo -e "Total de contêineres: $total_containers"
+echo -e "Contêineres rodando: $running_containers"
+
+if [ "$running_containers" -eq "$total_containers" ]; then
+    echo -e "\n${GREEN}✅ TODOS OS CONTÊINERES ESTÃO EM EXECUÇÃO${NC}"
 else
-    echo -e "\n${RED}⚠️ EXISTEM PODS QUE NÃO ESTÃO PRONTOS ($ready_pods/$total_pods)${NC}"
+    echo -e "\n${RED}⚠️ EXISTEM CONTÊINERES QUE NÃO ESTÃO EM EXECUÇÃO ($running_containers/$total_containers)${NC}"
 fi
 
 if [ -n "$current_leader" ] && [ "$current_leader" != "null" ] && [ "$current_leader" != "None" ]; then

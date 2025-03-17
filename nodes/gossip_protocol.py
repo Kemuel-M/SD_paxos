@@ -11,6 +11,7 @@ class GossipProtocol:
     """
     Implementação do protocolo Gossip para descoberta descentralizada de nós e
     manutenção de estado distribuído em um sistema Paxos.
+    Adaptado para ambiente Docker Compose.
     """
     
     def __init__(self, node_id, node_role, hostname, port, seed_nodes=None):
@@ -149,7 +150,7 @@ class GossipProtocol:
         targets = random.sample(list(other_nodes.values()), num_nodes)
         self.logger.debug(f"Selecionados {num_nodes} nós para envio de gossip")
         
-        # MODIFICAÇÃO: Log mais detalhado
+        # Log mais detalhado
         target_details = ", ".join([f"{t['role']}-{t['id']}@{t['address']}" for t in targets])
         self.logger.debug(f"Alvos do gossip: {target_details}")
         
@@ -176,28 +177,20 @@ class GossipProtocol:
         # Enviar para cada nó alvo
         for target in targets:
             try:
-                # MODIFICAÇÃO: Usar nome de serviço para comunicação interna
+                # No Docker Compose, usamos diretamente o nome do serviço/contêiner
                 target_address = target['address']
-                # Garantir que estamos usando o nome de serviço correto
-                if not ('svc.cluster.local' in target_address) and '-' in target_address:
-                    # Extrair o nome do serviço antes do primeiro hífen
-                    service_name = target_address.split('-')[0]
-                    target_address = f"{service_name}.{os.environ.get('NAMESPACE', 'paxos')}.svc.cluster.local"
-                    self.logger.debug(f"Convertendo endereço de {target['address']} para {target_address}")
-                
                 target_url = f"http://{target_address}:{target['port']}/gossip"
                 self.logger.debug(f"Enviando gossip para {target['role']} {target['id']} em {target_url}")
                 
-                # MODIFICAÇÃO: Implementar retry com backoff mais agressivo
-                max_retries = 3  # Aumentar de 2 para 3
-                base_timeout = 2.0  # Aumentar de 1.0 para 2.0
+                # Implementar retry com backoff
+                max_retries = 3
+                base_timeout = 2.0
                 
                 for retry in range(max_retries):
                     try:
                         timeout = base_timeout * (1.5 ** retry)
                         jitter = random.uniform(0.1, 0.3)
                         
-                        # MODIFICAÇÃO: Log mais detalhado para debug
                         self.logger.debug(f"Tentativa {retry+1}/{max_retries} para {target['role']} {target['id']} (timeout: {timeout+jitter:.2f}s)")
                         
                         response = requests.post(target_url, json=gossip_data, timeout=timeout + jitter)

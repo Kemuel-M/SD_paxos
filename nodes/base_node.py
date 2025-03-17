@@ -14,6 +14,7 @@ class BaseNode:
     """
     Classe base que implementa funcionalidades comuns a todos os tipos de nós
     do sistema Paxos (proposer, acceptor, learner, client).
+    Adaptada para ambiente Docker Compose.
     """
     
     def __init__(self, app=None):
@@ -39,19 +40,11 @@ class BaseNode:
         self.port = int(os.environ.get('PORT', self._get_default_port()))
         
         # Definir hostname (ou obter do ambiente)
-        raw_hostname = os.environ.get('HOSTNAME', 'localhost')
+        self.hostname = os.environ.get('HOSTNAME', 'localhost')
         
-        # MODIFICAÇÃO: Converter o hostname do pod para o nome do serviço no Kubernetes
-        # No Kubernetes, os nomes de pods começam com o nome do serviço seguido por um hash
-        # Exemplo: "proposer1-d789dbb8b-8lj97" deve se tornar "proposer1"
-        if '-' in raw_hostname:
-            # Extrair apenas a parte do nome do serviço (antes do primeiro hífen)
-            service_name = raw_hostname.split('-')[0]
-            # Para uso dentro do cluster Kubernetes, use o formato DNS completo
-            self.hostname = f"{service_name}.{os.environ.get('NAMESPACE', 'paxos')}.svc.cluster.local"
-            self.logger.info(f"Usando nome de serviço Kubernetes: {self.hostname}")
-        else:
-            self.hostname = raw_hostname
+        # No Docker Compose, o hostname já é o nome do contêiner
+        # Não é necessário processamento adicional como no Kubernetes
+        self.logger.info(f"Usando nome do contêiner: {self.hostname}")
         
         # Obter nós sementes (a partir de variáveis de ambiente)
         self.seed_nodes = self._get_seed_nodes()
@@ -84,6 +77,7 @@ class BaseNode:
     def _get_seed_nodes(self):
         """
         Obter nós sementes a partir de variáveis de ambiente.
+        Adaptado para ambiente Docker Compose.
         """
         seed_nodes_str = os.environ.get('SEED_NODES', '')
         seed_nodes = []
@@ -96,7 +90,7 @@ class BaseNode:
                         seed_nodes.append({
                             'id': int(parts[0]),
                             'role': parts[1],
-                            'address': parts[2],
+                            'address': parts[2],  # No Docker Compose, este é o nome do contêiner
                             'port': int(parts[3])
                         })
         
@@ -133,7 +127,6 @@ class BaseNode:
             "current_leader": self.gossip.get_leader()
         }), 200
     
-    # No método start() do BaseNode
     def start(self):
         """
         Inicia o nó, incluindo o protocolo Gossip e o servidor Flask.

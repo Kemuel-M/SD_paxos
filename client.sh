@@ -13,73 +13,62 @@ NC='\033[0m' # No Color
 CURRENT_CLIENT="client1"
 CLIENT_ID="9"  # client1=9, client2=10
 TIMEOUT=10
-NAMESPACE="paxos"
 
 clear
-echo -e "${BLUE}
-
-# Loop principal
-while true; do
-    show_menu
-done═════════════════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}═════════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}              SISTEMA PAXOS - CLIENTE INTERATIVO                 ${NC}"
 echo -e "${BLUE}═════════════════════════════════════════════════════════════════${NC}"
 
-# Verificar se kubectl está disponível
-if ! command -v kubectl &> /dev/null; then
-    echo -e "${RED}[ERRO] kubectl não encontrado. Por favor, instale o kubectl antes de continuar.${NC}"
+# Verificar se o Docker está disponível
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}[ERRO] Docker não encontrado. Por favor, instale o Docker antes de continuar.${NC}"
     exit 1
 fi
 
-# Verificar se o namespace paxos existe
-if ! kubectl get namespace $NAMESPACE &> /dev/null; then
-    echo -e "${RED}[ERRO] Namespace '$NAMESPACE' não encontrado. Execute ./deploy-paxos-k8s.sh primeiro.${NC}"
+# Verificar se os contêineres estão em execução
+if ! docker ps | grep -q "client1"; then
+    echo -e "${RED}[ERRO] Contêiner client1 não encontrado. Execute ./deploy.sh primeiro.${NC}"
     exit 1
 fi
 
-# Função para executar comando em um pod
-exec_in_pod() {
-    local service=$1
-    local namespace=$2
-    local command=$3
+# Função para executar comando em um contêiner
+exec_in_container() {
+    local container=$1
+    local command=$2
     
-    # Obter o pod correspondente ao serviço
-    local pod=$(kubectl get pods -n $namespace -l app=$service -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    
-    if [ -z "$pod" ]; then
-        echo "${RED}[ERRO] Pod para $service não encontrado${NC}" >&2
-        return 1
-    fi
-    
-    # Executar o comando no pod
-    kubectl exec -n $namespace $pod -- bash -c "$command" 2>/dev/null
+    docker exec $container bash -c "$command" 2>/dev/null
     return $?
 }
 
 # Função para verificar a disponibilidade do serviço
 check_service() {
-    local service=$1
-    local namespace=$NAMESPACE
+    local container=$1
     
-    # Verificar se o pod existe
-    local pod=$(kubectl get pods -n $namespace -l app=$service -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    
-    if [ -z "$pod" ]; then
-        echo -e "${RED}[ERRO] Serviço $service não está disponível (pod não encontrado)!${NC}"
+    # Verificar se o contêiner existe e está em execução
+    if ! docker ps | grep -q "$container"; then
+        echo -e "${RED}[ERRO] Contêiner $container não está disponível!${NC}"
         echo -e "${YELLOW}Verifique se o sistema Paxos está em execução com ./run.sh${NC}"
         return 1
     fi
     
-    # Verificar se o pod está pronto
-    local ready=$(kubectl get pod $pod -n $namespace -o jsonpath="{.status.containerStatuses[0].ready}" 2>/dev/null)
+    # Verificar se o serviço está respondendo
+    local port=0
+    case $container in
+        client1) port=6001 ;;
+        client2) port=6002 ;;
+        *) port=0 ;;
+    esac
     
-    if [ "$ready" != "true" ]; then
-        echo -e "${RED}[ERRO] Serviço $service não está pronto!${NC}"
-        echo -e "${YELLOW}Verifique o status do pod: kubectl describe pod $pod -n $namespace${NC}"
-        return 1
+    if [ $port -ne 0 ]; then
+        if exec_in_container $container "curl -s http://localhost:$port/health" &> /dev/null; then
+            return 0
+        else
+            echo -e "${RED}[ERRO] Serviço no contêiner $container não está respondendo!${NC}"
+            return 1
+        fi
     fi
     
-    return 0
+    return 1
 }
 
 # Verificar disponibilidade dos clientes
@@ -141,8 +130,14 @@ write_value() {
     # Escapar aspas duplas no valor
     escaped_value=${value//\"/\\\"}
     
-    # Usar comando exec_in_pod para enviar o valor
-    response=$(exec_in_pod "$CURRENT_CLIENT" "$NAMESPACE" "curl -s -X POST http://localhost:6001/send -H 'Content-Type: application/json' -d '{\"value\":\"$escaped_value\"}'")
+    # Usar comando exec_in_container para enviar o valor
+    local port=0
+    case $CURRENT_CLIENT in
+        client1) port=6001 ;;
+        client2) port=6002 ;;
+    esac
+    
+    response=$(exec_in_container "$CURRENT_CLIENT" "curl -s -X POST http://localhost:$port/send -H 'Content-Type: application/json' -d '{\"value\":\"$escaped_value\"}'")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         echo -e "${GREEN}Resposta do sistema:${NC}"
@@ -159,8 +154,14 @@ read_values() {
     
     echo -e "${YELLOW}Obtendo valores do sistema...${NC}"
     
-    # Usar comando exec_in_pod para ler os valores
-    response=$(exec_in_pod "$CURRENT_CLIENT" "$NAMESPACE" "curl -s http://localhost:6001/read")
+    # Usar comando exec_in_container para ler os valores
+    local port=0
+    case $CURRENT_CLIENT in
+        client1) port=6001 ;;
+        client2) port=6002 ;;
+    esac
+    
+    response=$(exec_in_container "$CURRENT_CLIENT" "curl -s http://localhost:$port/read")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         values=$(echo "$response" | python3 -c "import sys, json; data = json.load(sys.stdin); print('\n'.join([str(i+1) + '. ' + str(v) for i, v in enumerate(data.get('values', []))]))" 2>/dev/null)
@@ -183,8 +184,14 @@ view_responses() {
     
     echo -e "${YELLOW}Obtendo respostas recebidas pelo cliente...${NC}"
     
-    # Usar comando exec_in_pod para obter as respostas
-    response=$(exec_in_pod "$CURRENT_CLIENT" "$NAMESPACE" "curl -s http://localhost:6001/get-responses")
+    # Usar comando exec_in_container para obter as respostas
+    local port=0
+    case $CURRENT_CLIENT in
+        client1) port=6001 ;;
+        client2) port=6002 ;;
+    esac
+    
+    response=$(exec_in_container "$CURRENT_CLIENT" "curl -s http://localhost:$port/get-responses")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         echo -e "${GREEN}Resposta do sistema:${NC}"
@@ -201,8 +208,14 @@ client_status() {
     
     echo -e "${YELLOW}Obtendo status do cliente...${NC}"
     
-    # Usar comando exec_in_pod para obter o status
-    response=$(exec_in_pod "$CURRENT_CLIENT" "$NAMESPACE" "curl -s http://localhost:6001/view-logs")
+    # Usar comando exec_in_container para obter o status
+    local port=0
+    case $CURRENT_CLIENT in
+        client1) port=6001 ;;
+        client2) port=6002 ;;
+    esac
+    
+    response=$(exec_in_container "$CURRENT_CLIENT" "curl -s http://localhost:$port/view-logs")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         echo -e "${GREEN}Status do cliente:${NC}"
@@ -217,7 +230,7 @@ leader_status() {
     echo -e "\n${BLUE}────────────────── STATUS DO LÍDER ──────────────────${NC}"
     
     # Verificar líder atual consultando qualquer proposer
-    response=$(exec_in_pod "proposer1" "$NAMESPACE" "curl -s http://localhost:3001/view-logs")
+    response=$(exec_in_container "proposer1" "curl -s http://localhost:3001/view-logs")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         leader_id=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('current_leader', 'Nenhum líder eleito'))" 2>/dev/null)
@@ -237,7 +250,7 @@ leader_status() {
         # Obter status detalhado do líder
         if [[ $leader_id =~ ^[1-3]$ ]]; then
             echo -e "${YELLOW}Obtendo status detalhado do líder...${NC}"
-            leader_response=$(exec_in_pod "$proposer" "$NAMESPACE" "curl -s http://localhost:$proposer_port/view-logs")
+            leader_response=$(exec_in_container "$proposer" "curl -s http://localhost:$proposer_port/view-logs")
             if [ $? -eq 0 ] && [ ! -z "$leader_response" ]; then
                 echo -e "${GREEN}Status do líder:${NC}"
                 echo $leader_response | python3 -m json.tool 2>/dev/null || echo $leader_response
@@ -276,7 +289,7 @@ direct_write() {
     esac
     
     # Verificar se o proposer está disponível
-    if ! check_service "$proposer"; then
+    if ! docker ps | grep -q "$proposer"; then
         echo -e "${RED}Proposer $proposer não está disponível. Operação cancelada.${NC}"
         return
     fi
@@ -294,8 +307,8 @@ direct_write() {
     # Escapar aspas duplas no valor
     escaped_value=${value//\"/\\\"}
     
-    # Usar comando exec_in_pod para enviar o valor diretamente para o proposer
-    response=$(exec_in_pod "$proposer" "$NAMESPACE" "curl -s -X POST http://localhost:$proposer_port/propose -H 'Content-Type: application/json' -d '{\"value\":\"$escaped_value\", \"client_id\":$CLIENT_ID}'")
+    # Usar comando exec_in_container para enviar o valor diretamente para o proposer
+    response=$(exec_in_container "$proposer" "curl -s -X POST http://localhost:$proposer_port/propose -H 'Content-Type: application/json' -d '{\"value\":\"$escaped_value\", \"client_id\":$CLIENT_ID}'")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         echo -e "${GREEN}Resposta do proposer:${NC}"
@@ -309,9 +322,9 @@ direct_write() {
 system_status() {
     echo -e "\n${BLUE}────────────────── STATUS DO SISTEMA ──────────────────${NC}"
     
-    # Verificar pods em execução
-    echo -e "${YELLOW}Pods em execução:${NC}"
-    kubectl get pods -n $NAMESPACE
+    # Verificar contêineres em execução
+    echo -e "${YELLOW}Contêineres em execução:${NC}"
+    docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E 'proposer|acceptor|learner|client'
     
     # Array de componentes para verificar
     components=(
@@ -332,22 +345,18 @@ system_status() {
     echo -e "${CYAN}─────────────────────────────────────────${NC}"
     
     for component in "${components[@]}"; do
-        IFS=':' read -r name desc port <<< "$component"
+        IFS=':' read -r container desc port <<< "$component"
         
         # Verificar saúde do componente
-        pod=$(kubectl get pods -n $NAMESPACE -l app=$name -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-        
-        if [ -z "$pod" ]; then
-            status="${RED}Offline${NC}"
-        else
-            # Verificar status ready do pod
-            ready=$(kubectl get pod $pod -n $NAMESPACE -o jsonpath="{.status.containerStatuses[0].ready}" 2>/dev/null)
-            
-            if [ "$ready" = "true" ]; then
+        if docker ps | grep -q "$container"; then
+            # Verificar se o serviço está respondendo
+            if exec_in_container $container "curl -s http://localhost:$port/health" &> /dev/null; then
                 status="${GREEN}Online${NC}"
             else
                 status="${YELLOW}Iniciando${NC}"
             fi
+        else
+            status="${RED}Offline${NC}"
         fi
         
         printf "%-15s ${status} %-10s\n" "$desc" "$port"
@@ -355,7 +364,7 @@ system_status() {
     
     # Verificar líder atual
     echo -e "\n${YELLOW}Verificando líder atual...${NC}"
-    response=$(exec_in_pod "proposer1" "$NAMESPACE" "curl -s http://localhost:3001/view-logs")
+    response=$(exec_in_container "proposer1" "curl -s http://localhost:3001/view-logs")
     
     if [ $? -eq 0 ] && [ ! -z "$response" ]; then
         leader_id=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin).get('current_leader', 'Nenhum'))" 2>/dev/null)
@@ -405,3 +414,8 @@ show_menu() {
             ;;
     esac
 }
+
+# Loop principal
+while true; do
+    show_menu
+done

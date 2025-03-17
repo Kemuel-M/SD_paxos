@@ -16,7 +16,6 @@ DISPLAY_MODE="all"  # all, proposers, acceptors, learners, clients
 FOLLOW_LOGS=true
 VERBOSE=false
 MAX_LOGS=500  # Máximo de logs para manter em buffer
-NAMESPACE="paxos"
 
 # Matrizes para armazenar logs
 declare -a PROPOSER_LOGS
@@ -40,7 +39,7 @@ show_help() {
     echo -e "  -i, --interval N    Define o intervalo de atualização para N segundos (padrão: 3)"
     echo -e "  -n, --no-follow     Não segue os logs (exibe uma vez e sai)"
     echo -e "  -v, --verbose       Modo verboso (exibe mais detalhes)"
-    echo -e "  -k, --kubectl-logs  Inclui logs do Kubernetes para cada componente"
+    echo -e "  -d, --docker-logs   Inclui logs do Docker para cada componente"
     echo -e ""
     echo -e "Exemplos:"
     echo -e "  $0                     # Exibe todos os logs, atualizando a cada 3 segundos"
@@ -85,8 +84,8 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
-        -k|--kubectl-logs)
-            KUBECTL_LOGS=true
+        -d|--docker-logs)
+            DOCKER_LOGS=true
             shift
             ;;
         *)
@@ -104,71 +103,61 @@ if ! [[ "$UPDATE_INTERVAL" =~ ^[0-9]+$ ]]; then
     UPDATE_INTERVAL=3
 fi
 
-# Verificar se kubectl está disponível
-if ! command -v kubectl &> /dev/null; then
-    echo -e "${RED}[ERRO] kubectl não encontrado. Por favor, instale o kubectl antes de continuar.${NC}"
+# Verificar se o Docker está disponível
+if ! command -v docker &> /dev/null; then
+    echo -e "${RED}[ERRO] Docker não encontrado. Por favor, instale o Docker antes de continuar.${NC}"
     exit 1
 fi
 
-# Verificar se o namespace paxos existe
-if ! kubectl get namespace $NAMESPACE &> /dev/null; then
-    echo -e "${RED}[ERRO] Namespace '$NAMESPACE' não encontrado. Execute ./deploy-paxos-k8s.sh primeiro.${NC}"
+# Verificar se os contêineres estão em execução
+if ! docker ps | grep -q "proposer1"; then
+    echo -e "${RED}[ERRO] Contêiner proposer1 não encontrado. Execute ./deploy.sh primeiro.${NC}"
     exit 1
 fi
 
-# Função para executar comando em um pod
-exec_in_pod() {
-    local service=$1
-    local namespace=$2
-    local command=$3
+# Função para executar comando em um contêiner
+exec_in_container() {
+    local container=$1
+    local command=$2
     
-    # Obter o pod correspondente ao serviço
-    local pod=$(kubectl get pods -n $namespace -l app=$service -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    
-    if [ -z "$pod" ]; then
-        return 1
-    fi
-    
-    # Verificar se o pod está pronto
-    local ready=$(kubectl get pod $pod -n $namespace -o jsonpath="{.status.containerStatuses[0].ready}" 2>/dev/null)
-    
-    if [ "$ready" != "true" ]; then
-        return 1
-    fi
-    
-    # Executar o comando no pod
-    kubectl exec -n $namespace $pod -- bash -c "$command" 2>/dev/null
+    docker exec $container bash -c "$command" 2>/dev/null
     return $?
 }
 
-# Função para obter logs Kubernetes de um pod
-get_kubectl_logs() {
-    local service=$1
-    local namespace=$2
-    local lines=${3:-10}
+# Função para obter logs Docker de um contêiner
+get_docker_logs() {
+    local container=$1
+    local lines=${2:-10}
     
-    # Obter o pod correspondente ao serviço
-    local pod=$(kubectl get pods -n $namespace -l app=$service -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    
-    if [ -z "$pod" ]; then
-        return 1
-    fi
-    
-    # Obter logs do pod
-    kubectl logs $pod -n $namespace --tail=$lines 2>/dev/null
+    docker logs $container --tail=$lines 2>/dev/null
     return $?
 }
 
 # Função para verificar a disponibilidade do serviço
 check_service() {
-    local service=$1
-    local namespace=$NAMESPACE
+    local container=$1
     
-    # Verificar se o pod existe e está pronto
-    local response=$(exec_in_pod "$service" "$namespace" "curl -s http://localhost:8000/health")
+    # Verificar se o contêiner existe e está em execução
+    if ! docker ps | grep -q "$container"; then
+        return 1
+    fi
     
-    if [ $? -eq 0 ] && [ ! -z "$response" ]; then
-        return 0
+    # Verificar se o serviço está respondendo
+    local port=0
+    if [[ $container == proposer* ]]; then
+        port=$((3000 + ${container#proposer}))
+    elif [[ $container == acceptor* ]]; then
+        port=$((4000 + ${container#acceptor}))
+    elif [[ $container == learner* ]]; then
+        port=$((5000 + ${container#learner}))
+    elif [[ $container == client* ]]; then
+        port=$((6000 + ${container#client}))
+    fi
+    
+    if [ $port -ne 0 ]; then
+        if exec_in_container $container "curl -s http://localhost:$port/health" &> /dev/null; then
+            return 0
+        fi
     fi
     
     return 1
@@ -176,12 +165,11 @@ check_service() {
 
 # Função para obter logs de um serviço
 get_service_logs() {
-    local service=$1
+    local container=$1
     local port=$2
-    local namespace=$NAMESPACE
     
     # Obter logs do serviço via API
-    local response=$(exec_in_pod "$service" "$namespace" "curl -s http://localhost:$port/view-logs")
+    local response=$(exec_in_container "$container" "curl -s http://localhost:$port/view-logs")
     
     echo "$response"
 }
@@ -266,8 +254,9 @@ update_logs() {
     # Verificar e obter logs dos proposers
     if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "proposers" ]]; then
         for i in {1..3}; do
-            if check_service "proposer$i" >/dev/null; then
-                local logs=$(get_service_logs "proposer$i" "300$i")
+            if check_service "proposer$i"; then
+                local port=$((3000 + i))
+                local logs=$(get_service_logs "proposer$i" "$port")
                 if [ ! -z "$logs" ]; then
                     # Extrair eventos significativos
                     local events=$(parse_proposer_logs "$logs")
@@ -275,14 +264,218 @@ update_logs() {
                         PROPOSER_LOGS+=("[$timestamp] $events")
                     fi
                     
-                    # Adicionar logs do Kubernetes se solicitado
-                    if [ "$KUBECTL_LOGS" = true ] && [ "$VERBOSE" = true ]; then
-                        local k8s_logs=$(get_kubectl_logs "proposer$i" "$NAMESPACE" 3)
-                        if [ ! -z "$k8s_logs" ]; then
-                            PROPOSER_LOGS+=("[$timestamp] ${GRAY}[K8S LOGS] $k8s_logs${NC}")
+                    # Adicionar logs do Docker se solicitado
+                    if [ "$DOCKER_LOGS" = true ] && [ "$VERBOSE" = true ]; then
+                        local docker_logs=$(get_docker_logs "proposer$i" 3)
+                        if [ ! -z "$docker_logs" ]; then
+                            PROPOSER_LOGS+=("[$timestamp] ${GRAY}[DOCKER LOGS] $docker_logs${NC}")
                         fi
                     fi
                 fi
             fi
         done
     fi
+    
+    # Verificar e obter logs dos acceptors
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "acceptors" ]]; then
+        for i in {1..3}; do
+            if check_service "acceptor$i"; then
+                local port=$((4000 + i))
+                local logs=$(get_service_logs "acceptor$i" "$port")
+                if [ ! -z "$logs" ]; then
+                    # Extrair eventos significativos
+                    local events=$(parse_acceptor_logs "$logs")
+                    if [ ! -z "$events" ]; then
+                        ACCEPTOR_LOGS+=("[$timestamp] $events")
+                    fi
+                    
+                    # Adicionar logs do Docker se solicitado
+                    if [ "$DOCKER_LOGS" = true ] && [ "$VERBOSE" = true ]; then
+                        local docker_logs=$(get_docker_logs "acceptor$i" 3)
+                        if [ ! -z "$docker_logs" ]; then
+                            ACCEPTOR_LOGS+=("[$timestamp] ${GRAY}[DOCKER LOGS] $docker_logs${NC}")
+                        fi
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    # Verificar e obter logs dos learners
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "learners" ]]; then
+        for i in {1..2}; do
+            if check_service "learner$i"; then
+                local port=$((5000 + i))
+                local logs=$(get_service_logs "learner$i" "$port")
+                if [ ! -z "$logs" ]; then
+                    # Extrair eventos significativos
+                    local events=$(parse_learner_logs "$logs")
+                    if [ ! -z "$events" ]; then
+                        LEARNER_LOGS+=("[$timestamp] $events")
+                    fi
+                    
+                    # Adicionar logs do Docker se solicitado
+                    if [ "$DOCKER_LOGS" = true ] && [ "$VERBOSE" = true ]; then
+                        local docker_logs=$(get_docker_logs "learner$i" 3)
+                        if [ ! -z "$docker_logs" ]; then
+                            LEARNER_LOGS+=("[$timestamp] ${GRAY}[DOCKER LOGS] $docker_logs${NC}")
+                        fi
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    # Verificar e obter logs dos clients
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "clients" ]]; then
+        for i in {1..2}; do
+            if check_service "client$i"; then
+                local port=$((6000 + i))
+                local logs=$(get_service_logs "client$i" "$port")
+                if [ ! -z "$logs" ]; then
+                    # Extrair eventos significativos
+                    local events=$(parse_client_logs "$logs")
+                    if [ ! -z "$events" ]; then
+                        CLIENT_LOGS+=("[$timestamp] $events")
+                    fi
+                    
+                    # Adicionar logs do Docker se solicitado
+                    if [ "$DOCKER_LOGS" = true ] && [ "$VERBOSE" = true ]; then
+                        local docker_logs=$(get_docker_logs "client$i" 3)
+                        if [ ! -z "$docker_logs" ]; then
+                            CLIENT_LOGS+=("[$timestamp] ${GRAY}[DOCKER LOGS] $docker_logs${NC}")
+                        fi
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    # Limitar o tamanho dos arrays de logs
+    while [ ${#PROPOSER_LOGS[@]} -gt $MAX_LOGS ]; do
+        PROPOSER_LOGS=("${PROPOSER_LOGS[@]:1}")
+    done
+    
+    while [ ${#ACCEPTOR_LOGS[@]} -gt $MAX_LOGS ]; do
+        ACCEPTOR_LOGS=("${ACCEPTOR_LOGS[@]:1}")
+    done
+    
+    while [ ${#LEARNER_LOGS[@]} -gt $MAX_LOGS ]; do
+        LEARNER_LOGS=("${LEARNER_LOGS[@]:1}")
+    done
+    
+    while [ ${#CLIENT_LOGS[@]} -gt $MAX_LOGS ]; do
+        CLIENT_LOGS=("${CLIENT_LOGS[@]:1}")
+    done
+}
+
+# Função para exibir todos os logs
+display_logs() {
+    clear
+    
+    echo -e "${BLUE}═════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}              SISTEMA PAXOS - MONITOR EM TEMPO REAL              ${NC}"
+    echo -e "${BLUE}═════════════════════════════════════════════════════════════════${NC}"
+    
+    echo -e "${YELLOW}Atualizado em:${NC} $(date '+%Y-%m-%d %H:%M:%S')"
+    echo -e "${YELLOW}Modo:${NC} $DISPLAY_MODE  ${YELLOW}Intervalo:${NC} ${UPDATE_INTERVAL}s  ${YELLOW}Verboso:${NC} $VERBOSE"
+    
+    # Verificar status do líder
+    local leader_id=$(exec_in_container "proposer1" "curl -s http://localhost:3001/view-logs | python3 -c \"import sys, json; print(json.load(sys.stdin).get('current_leader', 'None'))\"" 2>/dev/null)
+    
+    if [ "$leader_id" == "None" ] || [ -z "$leader_id" ] || [ "$leader_id" == "null" ]; then
+        echo -e "${RED}Sistema sem líder eleito!${NC}"
+    else
+        echo -e "${GREEN}Líder atual: Proposer $leader_id${NC}"
+    fi
+    
+    echo -e "${BLUE}─────────────────────────────────────────────────────────────────${NC}"
+    
+    # Exibir logs dos proposers
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "proposers" ]]; then
+        echo -e "${PURPLE}PROPOSERS:${NC}"
+        
+        if [ ${#PROPOSER_LOGS[@]} -eq 0 ]; then
+            echo -e "${GRAY}Nenhum evento de proposer registrado.${NC}"
+        else
+            for log in "${PROPOSER_LOGS[@]}"; do
+                echo -e "$log"
+            done
+        fi
+        
+        echo -e "${BLUE}─────────────────────────────────────────────────────────────────${NC}"
+    fi
+    
+    # Exibir logs dos acceptors
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "acceptors" ]]; then
+        echo -e "${GREEN}ACCEPTORS:${NC}"
+        
+        if [ ${#ACCEPTOR_LOGS[@]} -eq 0 ]; then
+            echo -e "${GRAY}Nenhum evento de acceptor registrado.${NC}"
+        else
+            for log in "${ACCEPTOR_LOGS[@]}"; do
+                echo -e "$log"
+            done
+        fi
+        
+        echo -e "${BLUE}─────────────────────────────────────────────────────────────────${NC}"
+    fi
+    
+    # Exibir logs dos learners
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "learners" ]]; then
+        echo -e "${CYAN}LEARNERS:${NC}"
+        
+        if [ ${#LEARNER_LOGS[@]} -eq 0 ]; then
+            echo -e "${GRAY}Nenhum evento de learner registrado.${NC}"
+        else
+            for log in "${LEARNER_LOGS[@]}"; do
+                echo -e "$log"
+            done
+        fi
+        
+        echo -e "${BLUE}─────────────────────────────────────────────────────────────────${NC}"
+    fi
+    
+    # Exibir logs dos clients
+    if [[ "$DISPLAY_MODE" == "all" || "$DISPLAY_MODE" == "clients" ]]; then
+        echo -e "${BLUE}CLIENTS:${NC}"
+        
+        if [ ${#CLIENT_LOGS[@]} -eq 0 ]; then
+            echo -e "${GRAY}Nenhum evento de client registrado.${NC}"
+        else
+            for log in "${CLIENT_LOGS[@]}"; do
+                echo -e "$log"
+            done
+        fi
+        
+        echo -e "${BLUE}─────────────────────────────────────────────────────────────────${NC}"
+    fi
+    
+    if [ "$FOLLOW_LOGS" = true ]; then
+        echo -e "${YELLOW}Pressione Ctrl+C para sair${NC}"
+    fi
+}
+
+# Inicialização
+clear
+echo -e "${BLUE}═════════════════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}              SISTEMA PAXOS - MONITOR EM TEMPO REAL              ${NC}"
+echo -e "${BLUE}═════════════════════════════════════════════════════════════════${NC}"
+echo -e "${YELLOW}Inicializando monitor...${NC}"
+
+# Loop principal
+update_logs
+display_logs
+
+if [ "$FOLLOW_LOGS" = true ]; then
+    # Capturar Ctrl+C para sair graciosamente
+    trap 'echo -e "\n${GREEN}Monitor finalizado.${NC}"; exit 0' INT
+    
+    while true; do
+        sleep $UPDATE_INTERVAL
+        update_logs
+        display_logs
+    done
+fi
+
+echo -e "\n${GREEN}Monitor finalizado.${NC}"

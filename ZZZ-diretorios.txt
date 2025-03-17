@@ -10,26 +10,17 @@ paxos-system/
 │   ├── client_node.py                  # Implementação do Client
 │   ├── main.py                         # Ponto de entrada principal
 │   └── requirements.txt                # Dependências Python
-├── k8s/                                # Manifestos Kubernetes
-│   ├── 00-namespace.yaml
-│   ├── 01-configmap.yaml
-│   ├── 02-proposers.yaml
-│   ├── 03-acceptors.yaml
-│   ├── 04-learners.yaml
-│   ├── 05-clients.yaml
-│   ├── 06-ingress.yaml
-│   └── 07-nodeport-services.yaml
 ├── test/
 │   ├── test-paxos.sh                   # Fara todos os testes funcionais para a rede paxos. testa a rede toda.
 │   ├── test-client.sh                  # Fara todos os testes individuais para o Client.
 │   ├── test-proposer.sh                # Fara todos os testes individuais para o Proposer.
 │   ├── test-acceptor.sh                # Fara todos os testes individuais para o Acceptor.
 │   ├── test-learner.sh                 # Fara todos os testes individuais para o Learner.
+├── docker-compose.yml                  # Configuração do Docker Compose
 ├── setup-dependencies.sh               # Configuração do ambiente Linux instalando todas as dependencias necessarias.
-├── setup-kubernetes.sh                 # Configuração do ambiente Kubernetes no Linux.
-├── k8s-deploy.sh                       # Implantação do sistema paxos no Kubernetes.
-├── k8s-run.sh                          # Inicialização da rede Paxos.
-├── k8s-cleanup-paxos-k8s.sh            # Limpeza do sistema.
+├── dk-deploy.sh                        # Implantação do sistema paxos.
+├── dk-run.sh                           # Inicialização da rede Paxos.
+├── dk-cleanup.sh                       # Limpeza do sistema.
 ├── client.sh                           # Cliente interativo, escolhe um cliente para poder operar.
 ├── monitor.sh                          # Monitor em tempo real de todos os nós da rede.
 ├── ZZZ-diretorios.txt                  # Estrutura do projeto em diretorios.
